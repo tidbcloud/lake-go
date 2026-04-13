@@ -50,6 +50,12 @@ func (s *LakeTestSuite) TestChangeRole() {
 	// wait for RoleCacheManager to reload
 	time.Sleep(15 * time.Second)
 
+	var user string
+	err = db.QueryRow("select current_user()").Scan(&user)
+	r.NoError(err)
+	_, err = db.Exec("grant role 'test_role' to " + user)
+	r.NoError(err)
+
 	_, err = db.Exec("set role 'test_role'")
 	r.NoError(err)
 	err = db.QueryRow("select current_role()").Scan(&result)
