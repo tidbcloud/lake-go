@@ -7,24 +7,10 @@ import (
 	"context"
 	"fmt"
 	"golang.org/x/mod/semver"
-	"reflect"
 	"time"
 
 	dc "github.com/tidbcloud/lake-go"
 )
-
-func getState(conn reflect.Value) reflect.Value {
-	m := conn.MethodByName("GetState")
-	var args []reflect.Value
-	r := m.Call(args)
-	return r[0]
-}
-
-func withState(conn reflect.Value, state reflect.Value) {
-	m := conn.MethodByName("WithState")
-	args := []reflect.Value{state}
-	m.Call(args)
-}
 
 func (s *LakeTestSuite) TestResumeQueryWithSessionState() {
 	if semver.Compare(driverVersion, "v0.9.0") < 0 {
@@ -47,13 +33,13 @@ func (s *LakeTestSuite) TestResumeQueryWithSessionState() {
 	s.Require().NotEmpty(startResp.NextURI)
 	s.False(startResp.ReadFinished())
 
-	clientState := getState(reflect.ValueOf(firstClient))
+	clientState := firstClient.GetState()
 	s.Require().NotNil(clientState)
 	//s.Require().NotEmpty(clientState.SessionID)
 	//s.Require().NotEmpty(clientState.SessionState)
 
 	secondClient := dc.NewAPIClientFromConfig(s.cfg)
-	withState(reflect.ValueOf(secondClient), clientState)
+	secondClient.WithState(clientState)
 	secondClient.MaxRowsPerPage = 1
 
 	resumeResp, err := secondClient.PollQuery(ctx, startResp.NextURI)
@@ -83,11 +69,11 @@ func (s *LakeTestSuite) TestSessionSettingLoadWithState() {
 	_, err := client.QuerySync(ctx, fmt.Sprintf("SET %s = %d", settingKey, settingValue))
 	s.Require().NoError(err)
 
-	state := getState(reflect.ValueOf(client))
+	state := client.GetState()
 	s.Require().NotNil(state)
 
 	client2 := dc.NewAPIClientFromConfig(s.cfg)
-	withState(reflect.ValueOf(client2), state)
+	client2.WithState(state)
 	resp, err := client2.QuerySync(ctx, fmt.Sprintf("SELECT value FROM system.settings WHERE name = '%s'", settingKey))
 	s.Require().NoError(err)
 	s.Require().Greater(len(resp.Data), 0)
@@ -95,7 +81,7 @@ func (s *LakeTestSuite) TestSessionSettingLoadWithState() {
 	s.Require().NotNil(resp.Data[0][0])
 	s.Equal(fmt.Sprintf("%d", settingValue), *resp.Data[0][0])
 
-	roundedState := getState(reflect.ValueOf(client2))
+	roundedState := client2.GetState()
 	s.Require().NotNil(roundedState)
 	//s.Require().NotEmpty(roundedState.SessionState)
 	//
@@ -115,6 +101,9 @@ func (s *LakeTestSuite) TestResumeQueryWithoutStateFails() {
 	startResp, err := client.StartQuery(ctx, "SELECT number FROM numbers(5)")
 	s.Require().NoError(err)
 	s.Require().NotNil(startResp)
+	defer func() {
+		s.NoError(client.CloseQuery(context.Background(), startResp))
+	}()
 
 	client2 := dc.NewAPIClientFromConfig(s.cfg)
 	client2.MaxRowsPerPage = 1
