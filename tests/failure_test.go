@@ -1,0 +1,18 @@
+package tests
+
+import (
+	"database/sql"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestConnectionError(t *testing.T) {
+	r := require.New(t)
+
+	db, err := sql.Open("databend", "lake://root:123456@localhost:12345")
+	r.NoError(err)
+
+	err = db.Ping()
+	r.Error(err)
+}

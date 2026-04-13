@@ -1,0 +1,21 @@
+.envrc
+tmp
+/dist
+/CHANGELOG.md
+/script/build
+/tests/data
+
+# Build artifacts
+ttc
+
+# VS Code
+.vscode
+
+# IntelliJ
+.idea
+
+# macOS
+.DS_Store
+
+# vim
+*.swp

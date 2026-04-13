@@ -1,0 +1,158 @@
+package golake
+
+import (
+	"bufio"
+	"context"
+	"database/sql"
+	"database/sql/driver"
+	"encoding/csv"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
+)
+
+// \x60 represents a backtick
+var httpInsertRe = regexp.MustCompile(`(?i)^\s*(?:INSERT|REPLACE) INTO\s+\x60?([\w.^\(]+)\x60?(?:\s*\([^\)]*\))?(?:\s+ON\s*\([^\)]*\))?(?:\s*\([^\)]*\))?\s+VALUES`)
+
+type BatchStmt struct {
+	query string
+}
+
+func PrepareBatch(query string) (stmt *BatchStmt, err error) {
+	stmt = &BatchStmt{
+		query: query,
+	}
+	return stmt, nil
+}
+
+func (stmt *BatchStmt) ExecBatch(ctx context.Context, conn *sql.Conn, rows [][]driver.Value) (result driver.Result, err error) {
+	err = conn.Raw(func(rawConn interface{}) error {
+		bendConn := rawConn.(*LakeConn)
+		result, err = bendConn.ExecBatch(ctx, stmt.query, rows)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+type Batch interface {
+	AppendToFile(v []driver.Value) error
+	BatchInsert() error
+}
+
+func (dc *LakeConn) prepareBatch(ctx context.Context, query string) (Batch, error) {
+	matches := httpInsertRe.FindStringSubmatch(query)
+	if len(matches) < 2 {
+		return nil, errors.New("PrepareBatch only support INSERT/REPLACE")
+	}
+	csvFileName := fmt.Sprintf("%s/%s.csv", os.TempDir(), uuid.NewString())
+
+	csvFile, err := os.OpenFile(csvFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
+	if err != nil {
+		return nil, err
+	}
+	defer csvFile.Close()
+	writer := csv.NewWriter(csvFile)
+	writer.Flush()
+
+	return &httpBatch{
+		query:     query,
+		ctx:       ctx,
+		conn:      dc,
+		batchFile: csvFileName,
+	}, nil
+}
+
+type httpBatch struct {
+	query     string
+	ctx       context.Context
+	conn      *LakeConn
+	batchFile string
+}
+
+func (b *httpBatch) BatchInsert() error {
+	defer func() {
+		err := os.RemoveAll(b.batchFile)
+		if err != nil {
+			b.conn.log("delete batch insert file failed: ", err)
+		}
+	}()
+
+	stage, err := b.UploadToStage(context.Background())
+	if err != nil {
+		return errors.Wrap(err, "upload to stage failed")
+	}
+
+	_, err = b.conn.rest.InsertWithStage(b.ctx, b.query, stage, nil, nil)
+	if err != nil {
+		return errors.Wrap(err, "insert with stage failed")
+	}
+	return nil
+}
+
+func (b *httpBatch) AppendToFile(row []driver.Value) error {
+	csvFile, err := os.OpenFile(b.batchFile, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
+	if err != nil {
+		return err
+	}
+	defer csvFile.Close()
+
+	lineData := make([]string, 0, len(row))
+	for _, v := range row {
+		var s string
+		switch v := v.(type) {
+		case string:
+			s = v
+		case time.Time:
+			s = v.Format(timeFormat)
+		case date:
+			s = time.Time(v).Format(dateFormat)
+		default:
+			bytes, err := textEncode.Encode(v)
+			if err != nil {
+				return err
+			}
+			s = string(bytes)
+		}
+		lineData = append(lineData, s)
+	}
+	writer := csv.NewWriter(csvFile)
+	err = writer.Write(lineData)
+	if err != nil {
+		return err
+	}
+	writer.Flush()
+
+	return nil
+}
+
+func (b *httpBatch) UploadToStage(ctx context.Context) (*StageLocation, error) {
+	ctx = checkQueryID(ctx)
+	fi, err := os.Stat(b.batchFile)
+	if err != nil {
+		return nil, errors.Wrap(err, "get batch file size failed")
+	}
+	size := fi.Size()
+
+	f, err := os.Open(b.batchFile)
+	if err != nil {
+		return nil, errors.Wrap(err, "open batch file failed")
+	}
+	defer f.Close()
+	input := bufio.NewReader(f)
+	stage := &StageLocation{
+		Name: "~",
+		Path: fmt.Sprintf("batch/%d-%s", time.Now().Unix(), filepath.Base(b.batchFile)),
+	}
+	return stage, b.conn.rest.UploadToStage(ctx, stage, input, size)
+}

@@ -1,0 +1,151 @@
+package golake
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+type QueryError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Kind    string `json:"kind"`
+	Detail  string `json:"detail"`
+}
+
+func (e *QueryError) Error() string {
+	text := fmt.Sprintf("code: %d", e.Code)
+	if e.Message != "" {
+		text += fmt.Sprintf(", message: %s", e.Message)
+	}
+	if e.Detail != "" {
+		text += fmt.Sprintf(", datail: %s", e.Detail)
+	}
+	if e.Kind != "" {
+		text += fmt.Sprintf(", kind: %s", e.Kind)
+	}
+	return text
+}
+
+type DataField struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+type Settings struct {
+	TimeZone             string `json:"timezone"`
+	GeometryOutputFormat string `json:"geometry_output_format"`
+}
+
+type QueryResponse struct {
+	ID       string           `json:"id"`
+	NodeID   string           `json:"node_id"`
+	Session  *json.RawMessage `json:"session"`
+	Settings *Settings        `json:"settings"`
+	Schema   *[]DataField     `json:"schema"`
+	Data     [][]*string      `json:"data"`
+	State    string           `json:"state"`
+	Error    *QueryError      `json:"error"`
+	Stats    *QueryStats      `json:"stats"`
+	// TODO: Affect rows
+	StatsURI string `json:"stats_uri"`
+	FinalURI string `json:"final_uri"`
+	NextURI  string `json:"next_uri"`
+	KillURI  string `json:"kill_uri"`
+}
+
+func (r *QueryResponse) ReadFinished() bool {
+	return r.NextURI == "" || strings.Contains(r.NextURI, "/final")
+}
+
+type QueryStats struct {
+	RunningTimeMS  float64       `json:"running_time_ms"`
+	ScanProgress   QueryProgress `json:"scan_progress"`
+	WriteProgress  QueryProgress `json:"write_progress"`
+	ResultProgress QueryProgress `json:"result_progress"`
+}
+
+// QueryStatsTracker is a function that will be called when query stats are updated,
+// it can be specified in the Config struct.
+type QueryStatsTracker func(queryID string, stats *QueryStats)
+
+type QueryProgress struct {
+	Bytes uint64 `json:"bytes"`
+	Rows  uint64 `json:"rows"`
+}
+
+type QueryRequest struct {
+	// We use client session instead of server session with session_id
+	// SessionID  string            `json:"session_id,omitempty"`
+
+	Session    *json.RawMessage  `json:"session,omitempty"`
+	SQL        string            `json:"sql"`
+	Pagination *PaginationConfig `json:"pagination,omitempty"`
+
+	// Default to true
+	// StringFields  bool  `json:"string_fields,omitempty"`
+
+	StageAttachment *StageAttachmentConfig `json:"stage_attachment,omitempty"`
+}
+
+type QueryIDGenerator func() string
+
+type PaginationConfig struct {
+	WaitTime        int64 `json:"wait_time_secs,omitempty"`
+	MaxRowsInBuffer int64 `json:"max_rows_in_buffer,omitempty"`
+	MaxRowsPerPage  int64 `json:"max_rows_per_page,omitempty"`
+}
+
+type TxnState string
+
+const (
+	TxnStateActive     TxnState = "Active"
+	TxnStateAutoCommit TxnState = "AutoCommit"
+)
+
+type SessionState struct {
+	Database       string    `json:"database,omitempty"`
+	Role           string    `json:"role,omitempty"`
+	SecondaryRoles *[]string `json:"secondary_roles,omitempty"`
+
+	// Since we use client session, this should not be used
+	// KeepServerSessionSecs uint64            `json:"keep_server_session_secs,omitempty"`
+
+	Settings map[string]string `json:"settings,omitempty"`
+
+	// txn
+	TxnState      TxnState `json:"txn_state,omitempty"` // "Active", "AutoCommit"
+	NeedSticky    bool     `json:"need_sticky,omitempty"`
+	NeedKeepAlive bool     `json:"need_keep_alive,omitempty"`
+}
+
+type StageAttachmentConfig struct {
+	Location          string            `json:"location"`
+	FileFormatOptions map[string]string `json:"file_format_options,omitempty"`
+	CopyOptions       map[string]string `json:"copy_options,omitempty"`
+}
+
+type ServerInfo struct {
+	Id        string `json:"id"`
+	StartTime string `json:"start_time"`
+}
+
+func parseAffectedRows(queryResp *QueryResponse) (int64, error) {
+	// the schema can be `number of rows inserted`, `number of rows deleted`, `number of rows updated` when sql start with  `insert`, `delete`, `update`
+	if queryResp.Schema != nil && len(*queryResp.Schema) > 0 && strings.Contains((*queryResp.Schema)[0].Name, "number of rows") {
+		if len(queryResp.Data) > 0 && len(queryResp.Data[0]) > 0 && queryResp.Data[0][0] != nil {
+			var affectedRows int64
+			if err := json.Unmarshal([]byte(*queryResp.Data[0][0]), &affectedRows); err != nil {
+				return 0, fmt.Errorf("failed to parse affected rows: %w", err)
+			}
+			return affectedRows, nil
+		}
+	}
+	return 0, nil
+}
+
+type VerifyResponse struct {
+	Tenant string   `json:"tenant"`
+	User   string   `json:"user"`
+	Roles  []string `json:"roles"`
+}
