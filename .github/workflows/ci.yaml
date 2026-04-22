@@ -15,7 +15,7 @@ jobs:
       matrix:
         server-version:
           - "nightly"
-          - "v1.2.889-nightly"
+          - "v1.2.881"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

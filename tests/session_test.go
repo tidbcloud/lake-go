@@ -38,34 +38,49 @@ func (s *LakeTestSuite) TestChangeRole() {
 
 	err := db.QueryRow("select version()").Scan(&result)
 	r.NoError(err)
+
+	// Use a dynamically-created user — built-in users declared in the server
+	// config (e.g. the `databend` user used by the DSN) cannot be granted roles.
+	testUser := fmt.Sprintf("tc_user_%d", time.Now().UnixNano())
+	const testPass = "tc_pass"
+
 	_, err = db.Exec("drop role if exists test_role")
 	r.NoError(err)
 	_, err = db.Exec("drop role if exists test_role_2")
 	r.NoError(err)
-	println(result)
 	_, err = db.Exec("create role if not exists test_role")
 	r.NoError(err)
-	s.NoError(err)
+	_, err = db.Exec(fmt.Sprintf("drop user if exists %s", testUser))
+	r.NoError(err)
+	_, err = db.Exec(fmt.Sprintf("create user %s identified by '%s'", testUser, testPass))
+	r.NoError(err)
+	_, err = db.Exec(fmt.Sprintf("grant role 'test_role' to %s", testUser))
+	r.NoError(err)
+	defer db.Exec(fmt.Sprintf("drop user if exists %s", testUser))
+	defer db.Exec("drop role if exists test_role")
 
 	// wait for RoleCacheManager to reload
 	time.Sleep(15 * time.Second)
 
-	var user string
-	err = db.QueryRow("select current_user()").Scan(&user)
-	r.NoError(err)
-	_, err = db.Exec("grant role 'test_role' to " + user)
-	r.NoError(err)
+	// Build a DSN for the new user by swapping user/password on the parsed cfg.
+	userCfg := *s.cfg
+	userCfg.User = testUser
+	userCfg.Password = testPass
+	userDSN := userCfg.FormatDSN()
 
-	_, err = db.Exec("set role 'test_role'")
+	db2, err := sql.Open("databend", userDSN)
 	r.NoError(err)
-	err = db.QueryRow("select current_role()").Scan(&result)
+	defer db2.Close()
+	_, err = db2.Exec("set role 'test_role'")
+	r.NoError(err)
+	err = db2.QueryRow("select current_role()").Scan(&result)
 	r.NoError(err)
 	r.Equal("test_role", result)
 
-	dsn_with_role := fmt.Sprintf("%s&role=test_role", dsn)
-	db2, err := sql.Open("databend", dsn_with_role)
+	db3, err := sql.Open("databend", userDSN+"&role=test_role")
 	r.NoError(err)
-	err = db2.QueryRow("select current_role()").Scan(&result)
+	defer db3.Close()
+	err = db3.QueryRow("select current_role()").Scan(&result)
 	r.NoError(err)
 	r.Equal("test_role", result)
 }
