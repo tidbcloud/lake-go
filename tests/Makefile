@@ -3,7 +3,7 @@ TEST_LAKE_DSN ?= "lake://databend:databend@localhost:8000/default?sslmode=disabl
 COMPAT_TEST_TAGS := $(strip $(shell python3 scripts/compat_tags.py))
 
 prepare:
-	mkdir -p data/lake
+	mkdir -p data/databend
 
 up: prepare
 	docker compose up --scale query=3 --quiet-pull -d  --wait

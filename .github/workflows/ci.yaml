@@ -33,7 +33,8 @@ jobs:
       - name: Integration Test
         env:
           TEST_LAKE_DSN: "lake://databend:databend@localhost:8000/default?sslmode=disable"
-          LAKE_VERSION: ${{ matrix.server-version }}
+          DATABEND_QUERY_VERSION: ${{ matrix.server-version }}
+          DATABEND_META_VERSION: ${{ matrix.server-version }}
         run: |
           make integration
 
@@ -58,6 +59,8 @@ jobs:
         env:
           TEST_LAKE_DSN: "lake://databend:databend@localhost:8000/default?sslmode=disable"
           LAKE_GO_VERSION: ${{ matrix.driver-version }}
+          DATABEND_QUERY_VERSION: nightly
+          DATABEND_META_VERSION: nightly
         run: |
           make compat
 
