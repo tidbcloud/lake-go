@@ -67,6 +67,18 @@ func (s *LakeTestSuite) TestChangeRole() {
 	userCfg.User = testUser
 	userCfg.Password = testPass
 	userDSN := userCfg.FormatDSN()
+	// message: Cannot grant role to built-in user `databend`
+	//var user string
+	//err = db.QueryRow("select current_user()").Scan(&user)
+	//r.NoError(err)
+	//_, err = db.Exec("grant role 'test_role' to " + user)
+	//r.NoError(err)
+
+	_, err = db.Exec("set role 'test_role'")
+	r.NoError(err)
+	err = db.QueryRow("select current_role()").Scan(&result)
+	r.NoError(err)
+	r.Equal("test_role", result)
 
 	db2, err := sql.Open("databend", userDSN)
 	r.NoError(err)

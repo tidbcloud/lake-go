@@ -1,6 +1,19 @@
-TEST_LAKE_DSN ?= "lake://databend:databend@localhost:8000/default?sslmode=disable"
+TEST_LAKE_DSN ?= lake://databend:databend@localhost:8000/default?sslmode=disable
+TEST_QUERY_RESULT_FORMAT ?= json
 
 COMPAT_TEST_TAGS := $(strip $(shell python3 scripts/compat_tags.py))
+
+ifeq ($(TEST_QUERY_RESULT_FORMAT),arrow)
+ifneq ($(findstring query_result_format=,$(TEST_LAKE_DSN)),)
+INTEGRATION_TEST_DSN := $(TEST_LAKE_DSN)
+else ifneq ($(findstring ?,$(TEST_LAKE_DSN)),)
+INTEGRATION_TEST_DSN := $(TEST_LAKE_DSN)&query_result_format=arrow
+else
+INTEGRATION_TEST_DSN := $(TEST_LAKE_DSN)?query_result_format=arrow
+endif
+else
+INTEGRATION_TEST_DSN := $(TEST_LAKE_DSN)
+endif
 
 prepare:
 	mkdir -p data/databend
@@ -15,11 +28,11 @@ down:
 	docker compose down
 
 integration: up
-	TEST_LAKE_DSN=${TEST_LAKE_DSN} go test -v -timeout 30m ./...
+	TEST_LAKE_DSN='$(INTEGRATION_TEST_DSN)' go test -v -timeout 30m ./...
 
 
 compat: up
 	test -f go.mod || go mod init it
 	go get github.com/tidbcloud/lake-go@${LAKE_GO_VERSION}
 	go get -t ./
-	TEST_LAKE_DSN=${TEST_LAKE_DSN} go test $(COMPAT_TEST_TAGS) -v -timeout 30m ./
+	TEST_LAKE_DSN='$(TEST_LAKE_DSN)' go test $(COMPAT_TEST_TAGS) -v -timeout 30m ./

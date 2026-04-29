@@ -16,6 +16,9 @@ jobs:
         server-version:
           - "nightly"
           - "v1.2.881"
+        query-result-format:
+          - "json"
+          - "arrow"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -33,6 +36,7 @@ jobs:
       - name: Integration Test
         env:
           TEST_LAKE_DSN: "lake://databend:databend@localhost:8000/default?sslmode=disable"
+          TEST_QUERY_RESULT_FORMAT: ${{ matrix.query-result-format }}
           DATABEND_QUERY_VERSION: ${{ matrix.server-version }}
           DATABEND_META_VERSION: ${{ matrix.server-version }}
         run: |

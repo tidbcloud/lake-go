@@ -47,6 +47,16 @@ You can get the connection settings from the TiDB Cloud console.
 - username/password - auth credentials from TiDB Cloud connection page
 - database - select the current default database
 
+## Query Result Transport
+
+The driver uses JSON query results by default.
+
+To opt in to the HTTP Arrow transport while keeping the public `database/sql` interface unchanged,
+set `query_result_format=arrow` in the DSN or set `cfg.QueryResultFormat = golake.QueryResultFormatArrow`.
+
+When Arrow is enabled, the driver only uses it if the server version is `>= 1.2.899`.
+If the backend still returns JSON for a query, the driver transparently falls back to the existing row path.
+
 ## Execution
 
 Once a connection has been obtained, users can issue sql statements for execution via the Exec method.
