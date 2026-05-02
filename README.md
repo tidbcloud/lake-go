@@ -18,23 +18,37 @@ go get github.com/tidbcloud/lake-go
 ## Connecting
 
 Connection can be achieved either via a DSN string with the
-format `https://user:password@host/database?<query_option>=<value>` and sql/Open method.
+format `lake://user:password@host:443/database?<query_option>=<value>`.
+
+Set `LAKE_DSN` before running the examples:
+
+```shell
+export LAKE_DSN='lake://user:password@host:443/default?warehouse=your-warehouse'
+```
 
 ```go
 import (
     "database/sql"
+    "fmt"
+    "os"
+
     _ "github.com/tidbcloud/lake-go"
 )
 
-func ConnectDSN() error {
-    dsn, cfg, err := getDSN()
-    if err != nil {
-        log.Fatalf("failed to create DSN from Config: %v, err: %v", cfg, err)
+func openLake() (*sql.DB, error) {
+    dsn := os.Getenv("LAKE_DSN")
+    if dsn == "" {
+        return nil, fmt.Errorf("set LAKE_DSN before running this example")
     }
-    conn, err := sql.Open("lake", dsn)
+    return sql.Open("lake", dsn)
+}
+
+func ConnectDSN() error {
+    conn, err := openLake()
     if err != nil {
         return err
     }
+    defer conn.Close()
     return conn.Ping()
 }
 ```
@@ -62,14 +76,12 @@ If the backend still returns JSON for a query, the driver transparently falls ba
 Once a connection has been obtained, users can issue sql statements for execution via the Exec method.
 
 ```go
-dsn, cfg, err := getDSN()
-if err != nil {
-    log.Fatalf("failed to create DSN from Config: %v, err: %v", cfg, err)
-}
-conn, err := sql.Open("lake", dsn)
+conn, err := openLake()
 if err != nil {
     fmt.Println(err)
+    return
 }
+defer conn.Close()
 conn.Exec(`DROP TABLE IF EXISTS data`)
 _, err = conn.Exec(`
     CREATE TABLE IF NOT EXISTS data(
@@ -95,17 +107,30 @@ import (
 )
 
 func main() {
-    conn, err := sql.Open("lake", "lake://user:password@lake.tidbcloud.com/default?sslmode=disable")
+    conn, err := openLake()
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    defer conn.Close()
+
+    conn.Exec("DROP TABLE IF EXISTS test")
+    _, err = conn.Exec(`CREATE TABLE test(
+        Col1 BIGINT,
+        Col2 VARCHAR
+    )`)
     tx, err := conn.Begin()
     if err != nil {
         fmt.Println(err)
+        return
     }
-    batch, err := tx.Prepare(fmt.Sprintf("INSERT INTO %s VALUES", "test"))
+    batch, err := tx.Prepare(fmt.Sprintf("INSERT INTO %s VALUES (?, ?)", "test"))
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
     for i := 0; i < 10; i++ {
-        _, err = batch.Exec(
-            "1234", "2345", "3.1415", "test", "test2",
-            "[4, 5, 6]", "[1, 2, 3]", "2021-01-01", "2021-01-01 00:00:00",
-        )
+        _, err = batch.Exec(i+1, fmt.Sprintf("row-%d", i+1))
     }
     err = tx.Commit()
 }
@@ -126,13 +151,15 @@ import (
 )
 
 func main() {
-    conn, err := sql.Open("lake", "lake://user:password@lake.tidbcloud.com/default?sslmode=disable")
+    conn, err := openLake()
     if err != nil {
         fmt.Println(err)
+        return
     }
-    row := conn.QueryRow("SELECT * FROM data")
+    defer conn.Close()
+    row := conn.QueryRow("SELECT Col1, Col2 FROM data")
     var (
-        col1 uint8
+        col1 int8
         col2 string
     )
     if err := row.Scan(&col1, &col2); err != nil {
@@ -155,13 +182,20 @@ import (
 )
 
 func main() {
-    conn, err := sql.Open("lake", "lake://user:password@lake.tidbcloud.com/default?sslmode=disable")
+    conn, err := openLake()
     if err != nil {
         fmt.Println(err)
+        return
     }
-    row, err := conn.Query("SELECT * FROM data")
+    defer conn.Close()
+    row, err := conn.Query("SELECT Col1, Col2 FROM data")
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    defer row.Close()
     var (
-        col1 uint8
+        col1 int8
         col2 string
     )
     for row.Next() {

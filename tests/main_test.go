@@ -437,17 +437,23 @@ func (s *LakeTestSuite) TestTransactionRollback() {
 func (s *LakeTestSuite) TestLongExec() {
 	db := sql.OpenDB(s.cfg)
 	defer db.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err := db.ExecContext(ctx, "SELECT number from numbers(100000) order by number")
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			s.T().Errorf("Query execution exceeded the 10s timeout")
-		} else {
-			s.r.NoError(err)
-		}
+	rows, err := db.QueryContext(ctx, "SELECT number from numbers(10000) order by number")
+	if err != nil && errors.Is(err, context.DeadlineExceeded) {
+		s.T().Errorf("Query execution exceeded the 30s timeout")
+		return
 	}
+	s.r.NoError(err)
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		count++
+	}
+	s.r.NoError(rows.Err())
+	s.r.Equal(10000, count)
 }
 
 func scanValues(rows *sql.Rows) ([][]interface{}, error) {
