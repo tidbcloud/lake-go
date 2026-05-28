@@ -1,6 +1,6 @@
 # lake-go
 
-Golang driver for [TiDB Cloud Lake](https://tidbcloud.com/)
+Golang driver for [TiDB Cloud Lake](https://tidbcloud.com/) 0
 
 ## Installation
 
