@@ -53,6 +53,10 @@ func ConnectDSN() error {
 }
 ```
 
+> The runnable snippets in the sections below reuse the `openLake()` helper
+> defined above (and assume `fmt` is imported). Each snippet is a function body,
+> not a standalone `main`.
+
 ## Connection Settings
 
 You can get the connection settings from the TiDB Cloud console.
@@ -97,43 +101,32 @@ _, err = conn.Exec("INSERT INTO data VALUES (1, 'test-1')")
 ## Batch Insert
 
 ```go
-package main
-
-import (
-    "database/sql"
-    "fmt"
-
-    _ "github.com/tidbcloud/lake-go"
-)
-
-func main() {
-    conn, err := openLake()
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
-    defer conn.Close()
-
-    conn.Exec("DROP TABLE IF EXISTS test")
-    _, err = conn.Exec(`CREATE TABLE test(
-        Col1 BIGINT,
-        Col2 VARCHAR
-    )`)
-    tx, err := conn.Begin()
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
-    batch, err := tx.Prepare(fmt.Sprintf("INSERT INTO %s VALUES (?, ?)", "test"))
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
-    for i := 0; i < 10; i++ {
-        _, err = batch.Exec(i+1, fmt.Sprintf("row-%d", i+1))
-    }
-    err = tx.Commit()
+conn, err := openLake()
+if err != nil {
+    fmt.Println(err)
+    return
 }
+defer conn.Close()
+
+conn.Exec("DROP TABLE IF EXISTS test")
+_, err = conn.Exec(`CREATE TABLE test(
+    Col1 BIGINT,
+    Col2 VARCHAR
+)`)
+tx, err := conn.Begin()
+if err != nil {
+    fmt.Println(err)
+    return
+}
+batch, err := tx.Prepare(fmt.Sprintf("INSERT INTO %s VALUES (?, ?)", "test"))
+if err != nil {
+    fmt.Println(err)
+    return
+}
+for i := 0; i < 10; i++ {
+    _, err = batch.Exec(i+1, fmt.Sprintf("row-%d", i+1))
+}
+err = tx.Commit()
 ```
 
 ## Querying Row/s
@@ -141,69 +134,47 @@ func main() {
 Querying a single row can be achieved using the QueryRow method.
 
 ```go
-package main
-
-import (
-    "database/sql"
-    "fmt"
-
-    _ "github.com/tidbcloud/lake-go"
-)
-
-func main() {
-    conn, err := openLake()
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
-    defer conn.Close()
-    row := conn.QueryRow("SELECT Col1, Col2 FROM data")
-    var (
-        col1 int8
-        col2 string
-    )
-    if err := row.Scan(&col1, &col2); err != nil {
-        fmt.Println(err)
-    }
-    fmt.Println(col2)
+conn, err := openLake()
+if err != nil {
+    fmt.Println(err)
+    return
 }
+defer conn.Close()
+row := conn.QueryRow("SELECT Col1, Col2 FROM data")
+var (
+    col1 int8
+    col2 string
+)
+if err := row.Scan(&col1, &col2); err != nil {
+    fmt.Println(err)
+}
+fmt.Println(col2)
 ```
 
 Iterating multiple rows requires the Query method.
 
 ```go
-package main
-
-import (
-    "database/sql"
-    "fmt"
-
-    _ "github.com/tidbcloud/lake-go"
+conn, err := openLake()
+if err != nil {
+    fmt.Println(err)
+    return
+}
+defer conn.Close()
+row, err := conn.Query("SELECT Col1, Col2 FROM data")
+if err != nil {
+    fmt.Println(err)
+    return
+}
+defer row.Close()
+var (
+    col1 int8
+    col2 string
 )
-
-func main() {
-    conn, err := openLake()
-    if err != nil {
+for row.Next() {
+    if err := row.Scan(&col1, &col2); err != nil {
         fmt.Println(err)
-        return
     }
-    defer conn.Close()
-    row, err := conn.Query("SELECT Col1, Col2 FROM data")
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
-    defer row.Close()
-    var (
-        col1 int8
-        col2 string
-    )
-    for row.Next() {
-        if err := row.Scan(&col1, &col2); err != nil {
-            fmt.Println(err)
-        }
-        fmt.Println(col2)
-    }
+    fmt.Println(col2)
 }
 ```
 
