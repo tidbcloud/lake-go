@@ -122,7 +122,7 @@ func main() {
 		ctx = baggage.ContextWithBaggage(ctx, bg)
 		c1, iSpan := tracer.Start(ctx, fmt.Sprintf("Sample-%d", i))
 		log.Printf("Doing really hard work (%d / 10)\n", i+1)
-		conn, err := sql.Open("lake", "lake://user:password@lake.tidbcloud.com:8000/default?sslmode=disable&enable_otel=true")
+		conn, err := sql.Open("lake", "lake://<user>:<password>@<gateway-host>:443/default?warehouse=<your-warehouse>&enable_otel=true")
 		if err != nil {
 			fmt.Println(err)
 		}
