@@ -10,7 +10,7 @@ import (
 )
 
 func (s *LakeTestSuite) TestDate() {
-	if semver.Compare(driverVersion, "v0.9.0") <= 0 || semver.Compare(serverVersion, "1.2.836") < 0 {
+	if semver.Compare(serverVersion, "1.2.836") < 0 {
 		return
 	}
 
@@ -79,7 +79,7 @@ func (s *LakeTestSuite) TestDate() {
 }
 
 func (s *LakeTestSuite) TestTimestamp() {
-	if semver.Compare(driverVersion, "v0.9.0") <= 0 || semver.Compare(serverVersion, "1.2.836") < 0 {
+	if semver.Compare(serverVersion, "1.2.836") < 0 {
 		return
 	}
 
@@ -140,7 +140,7 @@ func (s *LakeTestSuite) TestTimestamp() {
 }
 
 func (s *LakeTestSuite) TestTimestampTz() {
-	if semver.Compare(driverVersion, "v0.9.0") <= 0 || semver.Compare(serverVersion, "1.2.844") < 0 {
+	if semver.Compare(serverVersion, "1.2.844") < 0 {
 		return
 	}
 
@@ -244,10 +244,6 @@ func (s *LakeTestSuite) TestDecimal() {
 }
 
 func (s *LakeTestSuite) TestBinary() {
-	if semver.Compare(driverVersion, "v0.9.0") <= 0 {
-		return
-	}
-
 	db := sql.OpenDB(s.cfg)
 	defer db.Close()
 

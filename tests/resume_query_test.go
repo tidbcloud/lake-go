@@ -1,21 +1,14 @@
-//go:build !resume_query_skip
-// +build !resume_query_skip
-
 package tests
 
 import (
 	"context"
 	"fmt"
-	"golang.org/x/mod/semver"
 	"time"
 
 	dc "github.com/tidbcloud/lake-go"
 )
 
 func (s *LakeTestSuite) TestResumeQueryWithSessionState() {
-	if semver.Compare(driverVersion, "v0.9.0") < 0 {
-		return
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -54,9 +47,6 @@ func (s *LakeTestSuite) TestResumeQueryWithSessionState() {
 }
 
 func (s *LakeTestSuite) TestSessionSettingLoadWithState() {
-	if semver.Compare(driverVersion, "v0.9.0") < 0 {
-		return
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
