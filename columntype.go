@@ -210,6 +210,32 @@ func (*decimalColumnType) ScanType() reflect.Type {
 	return reflectTypeString
 }
 
+type binaryColumnType struct {
+	format binaryOutputFormat
+	mode   httpJSONResultMode
+	columnTypeDefault
+	isNullable
+}
+
+func (c binaryColumnType) Parse(s string) (driver.Value, error) {
+	if c.checkNull(s) {
+		return nil, nil
+	}
+	return materializeBinaryFromString(s, c.format, c.mode)
+}
+
+func (binaryColumnType) ScanType() reflect.Type {
+	return reflect.TypeOf([]byte(nil))
+}
+
+func (c binaryColumnType) DatabaseTypeName() string {
+	return c.wrapName("Binary")
+}
+
+func (c binaryColumnType) Desc() *TypeDesc {
+	return &TypeDesc{Name: "Binary", Nullable: bool(c.isNullable)}
+}
+
 func NewColumnType(dbType string, opts *ColumnTypeOptions) (ColumnType, error) {
 	if opts == nil {
 		opts = defaultColumnTypeOptions()
@@ -252,6 +278,8 @@ func NewColumnType(dbType string, opts *ColumnTypeOptions) (ColumnType, error) {
 		return &timestampTzColumnType{isNullable: nullable}, nil
 	case "Date":
 		return &dateColumnType{isNullable: nullable}, nil
+	case "Binary":
+		return &binaryColumnType{format: opts.binaryOutputFormat, mode: opts.httpJSONResultMode, isNullable: nullable}, nil
 	case "Decimal":
 		precision, err := strconv.ParseInt(desc.Args[0].Name, 10, 64)
 		if err != nil {
@@ -268,14 +296,18 @@ func NewColumnType(dbType string, opts *ColumnTypeOptions) (ColumnType, error) {
 }
 
 type ColumnTypeOptions struct {
-	formatNullAsStr bool
-	timezone        *time.Location
+	formatNullAsStr    bool
+	timezone           *time.Location
+	binaryOutputFormat binaryOutputFormat
+	httpJSONResultMode httpJSONResultMode
 }
 
 func defaultColumnTypeOptions() *ColumnTypeOptions {
 	return &ColumnTypeOptions{
-		formatNullAsStr: false,
-		timezone:        time.UTC,
+		formatNullAsStr:    false,
+		timezone:           time.UTC,
+		binaryOutputFormat: binaryOutputFormatHex,
+		httpJSONResultMode: httpJSONResultModeDriver,
 	}
 }
 
@@ -285,4 +317,12 @@ func (opt *ColumnTypeOptions) SetFormatNullAsStr(v bool) {
 
 func (opt *ColumnTypeOptions) SetTimezone(v *time.Location) {
 	opt.timezone = v
+}
+
+func (opt *ColumnTypeOptions) SetBinaryOutputFormat(v string) {
+	opt.binaryOutputFormat = parseBinaryOutputFormat(v)
+}
+
+func (opt *ColumnTypeOptions) SetHTTPJSONResultMode(v string) {
+	opt.httpJSONResultMode = parseHTTPJSONResultMode(v)
 }

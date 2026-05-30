@@ -38,6 +38,14 @@ func (dc *LakeConn) columnTypeOptions(location *time.Location) *ColumnTypeOption
 	} else if dc.cfg.Location != nil {
 		opts.SetTimezone(dc.cfg.Location)
 	}
+	if dc.cfg != nil {
+		if format, ok := dc.cfg.Params["binary_output_format"]; ok {
+			opts.SetBinaryOutputFormat(format)
+		}
+		if mode, ok := dc.cfg.Params["http_json_result_mode"]; ok {
+			opts.SetHTTPJSONResultMode(mode)
+		}
+	}
 	return opts
 }
 

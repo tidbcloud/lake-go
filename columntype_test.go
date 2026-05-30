@@ -17,6 +17,7 @@ func TestColumnType(t *testing.T) {
 		typeDesc string
 		input    string
 		want     any
+		settings *Settings
 	}{
 		{typeDesc: "String", input: "123", want: "123"},
 		{typeDesc: "Nullable(String)", input: "123", want: "123"},
@@ -34,10 +35,15 @@ func TestColumnType(t *testing.T) {
 		{typeDesc: "Timestamp", input: "2025-01-16 02:01:26.739219", want: time.Date(2025, 1, 16, 2, 1, 26, 739219000, time.UTC)},
 		{typeDesc: "Date", input: "2025-01-16", want: time.Date(2025, 1, 16, 0, 0, 0, 0, time.UTC)},
 		{typeDesc: "Decimal(10, 2)", input: "123.45", want: "123.45"},
+		{typeDesc: "Binary", input: "616263", want: []byte("abc")},
+		{typeDesc: "Binary", input: "YWJj", want: []byte("abc"), settings: &Settings{BinaryOutputFormat: "BASE64", HTTPJSONResultMode: "display"}},
 	}
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("%s::%s", tc.input, tc.typeDesc), func(t *testing.T) {
-			colType, err := NewColumnType(tc.typeDesc, nil)
+			opts, err := queryResponseColumnTypeOptions(tc.settings)
+			require.NoError(t, err)
+
+			colType, err := NewColumnType(tc.typeDesc, opts)
 			require.NoError(t, err)
 
 			v, err := colType.Parse(tc.input)
@@ -56,17 +62,21 @@ func TestColumnType(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, desc, desc2)
 
-			runScan(t, tc.typeDesc, tc.input, tc.want)
+			runScan(t, tc.typeDesc, tc.input, tc.want, tc.settings)
 		})
 	}
 }
 
-func runScan(t *testing.T, desc string, input string, want any) {
+func runScan(t *testing.T, desc string, input string, want any, settings *Settings) {
+	opts, err := queryResponseColumnTypeOptions(settings)
+	require.NoError(t, err)
+
 	db := sql.OpenDB(&fakeConnector{
 		resp: &QueryResponse{
 			Schema: &[]DataField{{Name: "x", Type: desc}},
 			Data:   [][]*string{{&input}},
 		},
+		opts: opts,
 	})
 
 	rows, err := db.Query("x")
@@ -83,8 +93,27 @@ func runScan(t *testing.T, desc string, input string, want any) {
 	require.Equal(t, want, reflect.ValueOf(a).Elem().Interface())
 }
 
+func TestBinaryScanIntoStringUsesDatabaseSQLDefaultConversion(t *testing.T) {
+	db := sql.OpenDB(&fakeConnector{
+		resp: &QueryResponse{
+			typedRows: [][]driver.Value{{[]byte("hello")}},
+			Schema:    &[]DataField{{Name: "x", Type: "Binary"}},
+		},
+	})
+
+	rows, err := db.Query("x")
+	require.NoError(t, err)
+	require.True(t, rows.Next())
+
+	var out string
+	err = rows.Scan(&out)
+	require.NoError(t, err)
+	require.Equal(t, "hello", out)
+}
+
 type fakeConnector struct {
 	resp *QueryResponse
+	opts *ColumnTypeOptions
 }
 
 func (c *fakeConnector) Driver() driver.Driver {
@@ -92,16 +121,18 @@ func (c *fakeConnector) Driver() driver.Driver {
 }
 
 func (c *fakeConnector) Connect(ctx context.Context) (driver.Conn, error) {
-	return &fakeConn{c.resp}, nil
+	return &fakeConn{resp: c.resp, opts: c.opts}, nil
 }
 
 type fakeConn struct {
 	resp *QueryResponse
+	opts *ColumnTypeOptions
 }
 
 func (c *fakeConn) Prepare(query string) (driver.Stmt, error) {
 	return &fakeStmt{
 		resp: c.resp,
+		opts: c.opts,
 	}, nil
 }
 
@@ -115,6 +146,7 @@ func (c *fakeConn) Begin() (driver.Tx, error) {
 
 type fakeStmt struct {
 	resp *QueryResponse
+	opts *ColumnTypeOptions
 }
 
 func (s *fakeStmt) Close() error {
@@ -130,7 +162,7 @@ func (s *fakeStmt) NumInput() int {
 }
 
 func (s *fakeStmt) Query(args []driver.Value) (driver.Rows, error) {
-	schema, err := parse_schema(s.resp.Schema, nil)
+	schema, err := parse_schema(s.resp.Schema, s.opts)
 	if err != nil {
 		return nil, err
 	}

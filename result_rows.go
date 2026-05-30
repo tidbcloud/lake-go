@@ -9,7 +9,12 @@ import (
 
 func queryResponseColumnTypeOptions(settings *Settings) (*ColumnTypeOptions, error) {
 	opts := defaultColumnTypeOptions()
-	if settings == nil || settings.TimeZone == "" {
+	if settings == nil {
+		return opts, nil
+	}
+	opts.SetBinaryOutputFormat(settings.BinaryOutputFormat)
+	opts.SetHTTPJSONResultMode(settings.HTTPJSONResultMode)
+	if settings.TimeZone == "" {
 		return opts, nil
 	}
 
