@@ -193,6 +193,7 @@ for row.Next() {
 | Float32            | float32         |
 | Float64            | float64         |
 | Bitmap             | string          |
+| Binary             | []byte          |
 | Decimal            | decimal.Decimal |
 | String             | string          |
 | Date               | time.Time       |
@@ -200,3 +201,5 @@ for row.Next() {
 | Array(T)           | string          |
 | Tuple(T1, T2, ..) | string          |
 | Variant            | string          |
+
+`Binary` is returned as raw `[]byte`. If you scan it into `string`, `database/sql` applies its default `[]byte` to `string` conversion; this does not reformat the value using `binary_output_format`.
