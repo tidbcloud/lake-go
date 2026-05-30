@@ -63,6 +63,12 @@ func (s *LakeTestSuite) TestDate() {
 			rows, err := db.Query(selectSQL)
 			s.r.NoError(err)
 
+			columnTypes, err := rows.ColumnTypes()
+			s.r.NoError(err)
+			s.r.Len(columnTypes, 1)
+			s.r.Equal("Date NULL", columnTypes[0].DatabaseTypeName())
+			s.r.Equal(reflect.TypeOf(time.Time{}), columnTypes[0].ScanType())
+
 			var output time.Time
 			for i := 0; i < 2; i++ {
 				s.r.True(rows.Next())
@@ -127,6 +133,12 @@ func (s *LakeTestSuite) TestTimestamp() {
 			s.r.True(rows.Next())
 			s.r.NoError(err)
 
+			columnTypes, err := rows.ColumnTypes()
+			s.r.NoError(err)
+			s.r.Len(columnTypes, 1)
+			s.r.Equal("Timestamp NULL", columnTypes[0].DatabaseTypeName())
+			s.r.Equal(reflect.TypeOf(time.Time{}), columnTypes[0].ScanType())
+
 			var output time.Time
 			err = rows.Scan(&output)
 			s.r.NoError(err)
@@ -183,6 +195,12 @@ func (s *LakeTestSuite) TestTimestampTz() {
 			s.r.NoError(err)
 			s.r.True(rows.Next())
 			s.r.NoError(err)
+
+			columnTypes, err := rows.ColumnTypes()
+			s.r.NoError(err)
+			s.r.Len(columnTypes, 1)
+			s.r.Equal("Timestamp_Tz NULL", columnTypes[0].DatabaseTypeName())
+			s.r.Equal(reflect.TypeOf(time.Time{}), columnTypes[0].ScanType())
 
 			var output time.Time
 			err = rows.Scan(&output)
@@ -243,33 +261,158 @@ func (s *LakeTestSuite) TestDecimal() {
 	s.r.NoError(rows.Close())
 }
 
-func (s *LakeTestSuite) TestBinary() {
+func (s *LakeTestSuite) TestScalarMappings() {
 	db := sql.OpenDB(s.cfg)
 	defer db.Close()
 
-	rows, err := db.Query("settings(binary_output_format='base64') SELECT to_binary('hello')")
+	rows, err := db.Query("SELECT CAST(true AS BOOLEAN) AS b, CAST(12 AS Int8) AS i8, CAST(1234 AS Int16) AS i16, CAST(123456 AS Int32) AS i32, CAST(123456789 AS Int64) AS i64, CAST(12 AS UInt8) AS u8, CAST(1234 AS UInt16) AS u16, CAST(123456 AS UInt32) AS u32, CAST(123456789 AS UInt64) AS u64, CAST(12.5 AS Float32) AS f32, CAST(34.25 AS Float64) AS f64, CAST('hello' AS String) AS s")
 	s.r.NoError(err)
 	s.r.True(rows.Next())
 
 	columnTypes, err := rows.ColumnTypes()
 	s.r.NoError(err)
-	s.r.Len(columnTypes, 1)
-	s.r.Equal("Binary", columnTypes[0].DatabaseTypeName())
-	s.r.Equal(reflect.TypeOf([]byte(nil)), columnTypes[0].ScanType())
+	s.r.Len(columnTypes, 12)
 
-	var raw []byte
-	err = rows.Scan(&raw)
+	testCases := []struct {
+		index    int
+		dbType   string
+		scanType reflect.Type
+	}{
+		{index: 0, dbType: "Boolean", scanType: reflect.TypeOf(true)},
+		{index: 1, dbType: "Int8", scanType: reflect.TypeOf(int8(0))},
+		{index: 2, dbType: "Int16", scanType: reflect.TypeOf(int16(0))},
+		{index: 3, dbType: "Int32", scanType: reflect.TypeOf(int32(0))},
+		{index: 4, dbType: "Int64", scanType: reflect.TypeOf(int64(0))},
+		{index: 5, dbType: "UInt8", scanType: reflect.TypeOf(uint8(0))},
+		{index: 6, dbType: "UInt16", scanType: reflect.TypeOf(uint16(0))},
+		{index: 7, dbType: "UInt32", scanType: reflect.TypeOf(uint32(0))},
+		{index: 8, dbType: "UInt64", scanType: reflect.TypeOf(uint64(0))},
+		{index: 9, dbType: "Float32", scanType: reflect.TypeOf(float32(0))},
+		{index: 10, dbType: "Float64", scanType: reflect.TypeOf(float64(0))},
+		{index: 11, dbType: "String", scanType: reflect.TypeOf("")},
+	}
+
+	for _, tc := range testCases {
+		s.r.Equal(tc.dbType, columnTypes[tc.index].DatabaseTypeName())
+		s.r.Equal(tc.scanType, columnTypes[tc.index].ScanType())
+		nullable, ok := columnTypes[tc.index].Nullable()
+		s.r.True(ok)
+		s.r.False(nullable)
+	}
+
+	var (
+		b   bool
+		i8  int8
+		i16 int16
+		i32 int32
+		i64 int64
+		u8  uint8
+		u16 uint16
+		u32 uint32
+		u64 uint64
+		f32 float32
+		f64 float64
+		str string
+	)
+	err = rows.Scan(&b, &i8, &i16, &i32, &i64, &u8, &u16, &u32, &u64, &f32, &f64, &str)
 	s.r.NoError(err)
-	s.r.Equal([]byte("hello"), raw)
+	s.r.True(b)
+	s.r.Equal(int8(12), i8)
+	s.r.Equal(int16(1234), i16)
+	s.r.Equal(int32(123456), i32)
+	s.r.Equal(int64(123456789), i64)
+	s.r.Equal(uint8(12), u8)
+	s.r.Equal(uint16(1234), u16)
+	s.r.Equal(uint32(123456), u32)
+	s.r.Equal(uint64(123456789), u64)
+	s.r.Equal(float32(12.5), f32)
+	s.r.Equal(float64(34.25), f64)
+	s.r.Equal("hello", str)
 	s.r.NoError(rows.Close())
+}
 
-	rows, err = db.Query("settings(binary_output_format='base64') SELECT to_binary('hello')")
+func (s *LakeTestSuite) TestNullableScalarMappings() {
+	db := sql.OpenDB(s.cfg)
+	defer db.Close()
+
+	rows, err := db.Query("SELECT CAST(NULL AS Nullable(Boolean)) AS b, CAST(NULL AS Nullable(Int64)) AS i64, CAST(NULL AS Nullable(Float64)) AS f64, CAST(NULL AS Nullable(String)) AS s")
 	s.r.NoError(err)
 	s.r.True(rows.Next())
 
-	var text string
-	err = rows.Scan(&text)
+	columnTypes, err := rows.ColumnTypes()
 	s.r.NoError(err)
+	s.r.Len(columnTypes, 4)
+
+	testCases := []struct {
+		index    int
+		dbType   string
+		scanType reflect.Type
+	}{
+		{index: 0, dbType: "Boolean NULL", scanType: reflect.TypeOf(true)},
+		{index: 1, dbType: "Int64 NULL", scanType: reflect.TypeOf(int64(0))},
+		{index: 2, dbType: "Float64 NULL", scanType: reflect.TypeOf(float64(0))},
+		{index: 3, dbType: "String NULL", scanType: reflect.TypeOf("")},
+	}
+
+	for _, tc := range testCases {
+		s.r.Equal(tc.dbType, columnTypes[tc.index].DatabaseTypeName())
+		s.r.Equal(tc.scanType, columnTypes[tc.index].ScanType())
+		nullable, ok := columnTypes[tc.index].Nullable()
+		s.r.True(ok)
+		s.r.True(nullable)
+	}
+
+	var (
+		b   sql.NullBool
+		i64 sql.NullInt64
+		f64 sql.NullFloat64
+		str sql.NullString
+	)
+	err = rows.Scan(&b, &i64, &f64, &str)
+	s.r.NoError(err)
+	s.r.False(b.Valid)
+	s.r.False(i64.Valid)
+	s.r.False(f64.Valid)
+	s.r.False(str.Valid)
+	s.r.NoError(rows.Close())
+}
+
+func (s *LakeTestSuite) TestBinary() {
+	db := sql.OpenDB(s.cfg)
+	defer db.Close()
+
+	rows, err := db.Query("settings(binary_output_format='base64') SELECT to_binary(''), to_binary('hello'), CAST(NULL AS Binary)")
+	s.r.NoError(err)
+	s.r.True(rows.Next())
+
+	columnTypes, err := rows.ColumnTypes()
+	s.r.NoError(err)
+	s.r.Len(columnTypes, 3)
+	s.r.Equal("Binary", columnTypes[0].DatabaseTypeName())
+	s.r.Equal("Binary", columnTypes[1].DatabaseTypeName())
+	s.r.Equal("Binary NULL", columnTypes[2].DatabaseTypeName())
+	s.r.Equal(reflect.TypeOf([]byte(nil)), columnTypes[0].ScanType())
+	s.r.Equal(reflect.TypeOf([]byte(nil)), columnTypes[1].ScanType())
+	s.r.Equal(reflect.TypeOf([]byte(nil)), columnTypes[2].ScanType())
+
+	var emptyRaw, raw, nullRaw []byte
+	err = rows.Scan(&emptyRaw, &raw, &nullRaw)
+	s.r.NoError(err)
+	s.r.Empty(emptyRaw)
+	s.r.Equal([]byte("hello"), raw)
+	s.r.Nil(nullRaw)
+	s.r.NoError(rows.Close())
+
+	rows, err = db.Query("settings(binary_output_format='base64') SELECT to_binary(''), to_binary('hello'), CAST(NULL AS Binary)")
+	s.r.NoError(err)
+	s.r.True(rows.Next())
+
+	var emptyText, text string
+	var nullText sql.NullString
+	err = rows.Scan(&emptyText, &text, &nullText)
+	s.r.NoError(err)
+	s.r.Equal("", emptyText)
 	s.r.Equal("hello", text)
+	s.r.False(nullText.Valid)
 	s.r.NoError(rows.Close())
 }
