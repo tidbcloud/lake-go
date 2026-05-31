@@ -3,7 +3,9 @@ package golake
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -101,6 +103,30 @@ func TestDoQuery(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "mockid1", gotQueryID)
 	assert.Equal(t, resp.ID, queryId)
+}
+
+func TestMakeHeadersUserAgent(t *testing.T) {
+	pkgVersion := strings.TrimSpace(version)
+
+	c := APIClient{
+		user:         "root",
+		password:     "root",
+		host:         "localhost:8000",
+		sessionState: &SessionState{},
+	}
+	headers, err := c.makeHeaders(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("lake-go/%s", pkgVersion), headers.Get("User-Agent"))
+
+	c.userAgent = "grafana-lake-datasource"
+	headers, err = c.makeHeaders(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("lake-go/%s (grafana-lake-datasource)", pkgVersion), headers.Get("User-Agent"))
+
+	ctx := context.WithValue(context.Background(), ContextUserAgentID, "bendsql")
+	headers, err = c.makeHeaders(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("lake-go/%s (bendsql)", pkgVersion), headers.Get("User-Agent"))
 }
 
 func TestClientStateRoundTripRestoresQuerySeq(t *testing.T) {
