@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,11 @@ func (s *LakeTestSuite) TestChangeRole() {
 	var result string
 	db := sql.OpenDB(s.cfg)
 	defer db.Close()
+	roleName := strings.ToLower(fmt.Sprintf("test_role_%d", time.Now().UnixNano()))
+	defer func() {
+		_, err := db.Exec(fmt.Sprintf("drop role if exists %s", roleName))
+		r.NoError(err)
+	}()
 
 	err := db.QueryRow("select version()").Scan(&result)
 	r.NoError(err)
@@ -44,20 +50,17 @@ func (s *LakeTestSuite) TestChangeRole() {
 	testUser := fmt.Sprintf("tc_user_%d", time.Now().UnixNano())
 	const testPass = "tc_pass"
 
-	_, err = db.Exec("drop role if exists test_role")
+	_, err = db.Exec(fmt.Sprintf("drop role if exists %s", roleName))
 	r.NoError(err)
-	_, err = db.Exec("drop role if exists test_role_2")
-	r.NoError(err)
-	_, err = db.Exec("create role if not exists test_role")
+	_, err = db.Exec(fmt.Sprintf("create role if not exists %s", roleName))
 	r.NoError(err)
 	_, err = db.Exec(fmt.Sprintf("drop user if exists %s", testUser))
 	r.NoError(err)
 	_, err = db.Exec(fmt.Sprintf("create user %s identified by '%s'", testUser, testPass))
 	r.NoError(err)
-	_, err = db.Exec(fmt.Sprintf("grant role 'test_role' to %s", testUser))
+	_, err = db.Exec(fmt.Sprintf("grant role '%s' to %s", roleName, testUser))
 	r.NoError(err)
 	defer db.Exec(fmt.Sprintf("drop user if exists %s", testUser))
-	defer db.Exec("drop role if exists test_role")
 
 	// wait for RoleCacheManager to reload
 	time.Sleep(15 * time.Second)
@@ -77,18 +80,22 @@ func (s *LakeTestSuite) TestChangeRole() {
 	db2, err := sql.Open("databend", userDSN)
 	r.NoError(err)
 	defer db2.Close()
-	_, err = db2.Exec("set role 'test_role'")
+	_, err = db2.Exec(fmt.Sprintf("set role '%s'", roleName))
 	r.NoError(err)
 	err = db2.QueryRow("select current_role()").Scan(&result)
 	r.NoError(err)
-	r.Equal("test_role", result)
+	r.Equal(roleName, result)
 
-	db3, err := sql.Open("databend", userDSN+"&role=test_role")
+	separator := "?"
+	if strings.Contains(userDSN, "?") {
+		separator = "&"
+	}
+	db3, err := sql.Open("databend", fmt.Sprintf("%s%srole=%s", userDSN, separator, roleName))
 	r.NoError(err)
 	defer db3.Close()
 	err = db3.QueryRow("select current_role()").Scan(&result)
 	r.NoError(err)
-	r.Equal("test_role", result)
+	r.Equal(roleName, result)
 }
 
 func (s *LakeTestSuite) TestSessionConfig() {
