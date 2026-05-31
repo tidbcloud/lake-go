@@ -27,7 +27,7 @@ func queryResponseColumnTypeOptions(settings *Settings) (*ColumnTypeOptions, err
 }
 
 func materializeJSONQueryRows(resp *QueryResponse) error {
-	if resp == nil || resp.typedRows != nil || len(resp.Data) == 0 {
+	if resp == nil || (resp.typedRows != nil && len(resp.typedRows) > 0) || len(resp.Data) == 0 {
 		return nil
 	}
 	if resp.Schema == nil || len(*resp.Schema) != len(resp.Data[0]) {
@@ -61,6 +61,7 @@ func materializeJSONQueryRows(resp *QueryResponse) error {
 		rows = append(rows, row)
 	}
 	resp.typedRows = rows
+	resp.Data = nil
 	return nil
 }
 
