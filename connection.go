@@ -108,7 +108,7 @@ func (dc *LakeConn) BeginTx(
 	if _, err := dc.exec(ctx, "BEGIN", nil, nil); err != nil {
 		return nil, err
 	}
-	return &lakeTx{dc}, nil
+	return &lakeTx{dc: dc, ctx: txContext(ctx)}, nil
 }
 
 func (dc *LakeConn) cleanup() {
@@ -150,7 +150,17 @@ func (dc *LakeConn) PrepareContext(ctx context.Context, query string) (driver.St
 
 func buildLakeConn(ctx context.Context, config *Config) (*LakeConn, error) {
 	dc := &LakeConn{
-		ctx:  ctx,
+		// database/sql dials a pooled connection with the context of whichever
+		// request needed it, and the connection then outlives that request.
+		// Nothing of that request may stick to the connection: its
+		// cancellation or deadline would fail later calls on a healthy
+		// connection, its query ID would make Lake treat a later statement
+		// as a retry of the dialing one, and its per-call values (such as the
+		// user agent override) would be attributed to unrelated requests.
+		// dc.ctx is only for calls that belong to no request (logout and the
+		// legacy context-free Begin/Prepare); the dial context is used for the
+		// dial itself below. Connection-level settings come from Config.
+		ctx:  context.Background(),
 		cfg:  config,
 		rest: NewAPIClientFromConfig(config),
 	}
