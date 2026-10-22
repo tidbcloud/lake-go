@@ -33,6 +33,12 @@ jobs:
         run: |
           make test
 
+      - name: OpenTelemetry example security regression
+        working-directory: examples/opentelemetry
+        run: |
+          go test -race ./...
+          go vet ./...
+
       - name: Integration Test
         env:
           TEST_LAKE_DSN: "lake://databend:databend@localhost:8000/default?sslmode=disable"
