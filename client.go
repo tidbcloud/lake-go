@@ -385,6 +385,17 @@ func (c *APIClient) makeURL(path string) (string, error) {
 	return c.apiEndpoint + path, nil
 }
 
+// String implements fmt.Stringer. A client holds the warehouse password (and
+// possibly a bearer token via its accessTokenLoader), so it must never be
+// formatted into a log line verbatim: credential fields are always masked.
+func (c *APIClient) String() string {
+	if c == nil {
+		return "APIClient<nil>"
+	}
+	return fmt.Sprintf("APIClient{SessionID:%s Host:%s Tenant:%s Warehouse:%s User:%s Password:%s}",
+		c.SessionID, c.host, c.tenant, c.warehouse, c.user, redacted(c.password))
+}
+
 func (c *APIClient) authMethod() AuthMethod {
 	if c.user != "" {
 		return AuthMethodUserPassword
@@ -714,7 +725,7 @@ func (c *APIClient) StartQuery(ctx context.Context, query string) (*QueryRespons
 }
 
 func (c *APIClient) startQuery(ctx context.Context, query string, transport queryTransport) (*QueryResponse, error) {
-	logger.Debugf("start query: ", query)
+	logger.Debugf("start query: %s", query)
 	request := QueryRequest{
 		SQL:        query,
 		Pagination: c.getPaginationConfig(),

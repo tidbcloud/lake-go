@@ -86,6 +86,18 @@ func NewConfig() *Config {
 	}
 }
 
+// String implements fmt.Stringer so that a Config is never formatted into a
+// log line or an error message with its credentials attached. FormatDSN is the
+// explicit way to obtain the credential-bearing form.
+func (cfg *Config) String() string {
+	if cfg == nil {
+		return "Config<nil>"
+	}
+	return fmt.Sprintf("Config{Host:%s Tenant:%s Warehouse:%s Database:%s User:%s Password:%s AccessToken:%s}",
+		cfg.Host, cfg.Tenant, cfg.Warehouse, cfg.Database, cfg.User,
+		redacted(cfg.Password), redacted(cfg.AccessToken))
+}
+
 // FormatDSN formats the given Config into a DSN string which can be passed to
 // the driver.
 func (cfg *Config) FormatDSN() string {
