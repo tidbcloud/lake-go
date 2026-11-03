@@ -1,6 +1,11 @@
 services:
   minio:
-    image: docker.io/minio/minio
+    # docker.io/minio/minio is no longer available (Docker Hub returns 404 and
+    # the open-source binary download site https://dl.min.io returns 410 Gone).
+    # coollabsio/minio is a mirror of the official image with the same
+    # entrypoint, command and ports, so `command: server /data` keeps working.
+    # The tag is pinned because the mirror only keeps a limited window of tags.
+    image: docker.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z
     command: server /data
     ports:
       - "9000:9000"
