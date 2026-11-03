@@ -344,6 +344,18 @@ func (c *APIClient) trackStats(resp *QueryResponse) {
 	c.statsTracker(resp.ID, resp.Stats)
 }
 
+// rejectedURIError is returned when a request URI is refused because it would
+// leave the configured endpoint. It unwraps to ErrDoRequest so that callers
+// which classify or retry on errors.Is(err, ErrDoRequest) keep matching after
+// URI validation was added, while the message stays specific.
+type rejectedURIError struct {
+	message string
+}
+
+func (e *rejectedURIError) Error() string { return e.message }
+
+func (e *rejectedURIError) Unwrap() error { return ErrDoRequest }
+
 // makeURL joins a request path with the configured API endpoint.
 //
 // path is usually a fixed server-relative path such as "/v1/query", but for the
@@ -359,8 +371,11 @@ func (c *APIClient) trackStats(resp *QueryResponse) {
 //
 // So path is accepted only if it keeps the request on the configured endpoint:
 //   - a relative path must start with "/" (a protocol-relative "//host/path"
-//     parses with a Host and is therefore handled by the absolute-URL rule);
-//   - an absolute URL must use the configured scheme and host.
+//     parses with a Host and is therefore handled by the absolute-URL rule),
+//     except for the two shapes the previous concatenation also supported -
+//     an empty value (the endpoint itself) and a query-only value such as
+//     "?page=2" - which still resolve to apiEndpoint + path verbatim;
+//   - an absolute URL must use the configured scheme and host:port.
 //
 // The server-provided string is also never used as a fmt format string, so a
 // "%" in it can no longer corrupt the URL.
@@ -371,16 +386,21 @@ func (c *APIClient) makeURL(path string) (string, error) {
 	}
 	u, err := url.Parse(path)
 	if err != nil {
-		return "", errors.Wrapf(err, "invalid request path %q", path)
+		return "", &rejectedURIError{message: fmt.Sprintf("invalid request path %q: %v", path, err)}
 	}
 	if u.Scheme != "" || u.Host != "" || u.Opaque != "" {
 		if !strings.EqualFold(u.Scheme, base.Scheme) || !strings.EqualFold(u.Host, base.Host) {
-			return "", errors.Errorf("refusing to send a request to %q: it does not belong to endpoint %q", path, c.apiEndpoint)
+			return "", &rejectedURIError{message: fmt.Sprintf("refusing to send a request to %q: it does not belong to endpoint %q", path, c.apiEndpoint)}
 		}
 		return path, nil
 	}
+	if u.Path == "" {
+		// "" and "?page=2" carry no path component; the old concatenation sent
+		// them to the endpoint itself and worked, so keep that behaviour.
+		return c.apiEndpoint + path, nil
+	}
 	if !strings.HasPrefix(u.Path, "/") {
-		return "", errors.Errorf("invalid request path %q: it must be an absolute path or a URL on endpoint %q", path, c.apiEndpoint)
+		return "", &rejectedURIError{message: fmt.Sprintf("invalid request path %q: it must be an absolute path or a URL on endpoint %q", path, c.apiEndpoint)}
 	}
 	return c.apiEndpoint + path, nil
 }
