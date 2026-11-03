@@ -214,3 +214,36 @@ is rendered as SQL text before the statement is sent.
   `Date`, `UInt64`, `Decimal*` and `Interval` wrappers use). Do not pass
   attacker-controlled data as `[]byte` to a placeholder: it is not escaped and
   is spliced into the statement verbatim. Bind it as a `string` instead.
+
+## Upgrade notes
+
+### 0.9.4
+
+- Server-supplied `next_uri` / `final_uri` / `kill_uri` are validated before
+  use. A relative path is used exactly as before; an absolute URL is accepted
+  only when its scheme and host:port equal the configured endpoint. Anything
+  else - another host such as `https://other.example/v1/query`, a scheme
+  downgrade such as `http://` against an `https://` endpoint, a
+  protocol-relative `//host/...`, an `@host/...` form, or a non-rooted relative
+  path - is rejected instead of being sent, so the warehouse credentials and
+  session cookies never go to a host named by the response. The old
+  `apiEndpoint + path` concatenation is preserved verbatim for relative
+  paths, including the two shapes that also worked before: an empty value
+  (the endpoint itself) and a query-only value such as `?page=2`.
+- A rejected URI is still classified as a request failure: the error satisfies
+  `errors.Is(err, golake.ErrDoRequest)` and keeps the message
+  `refusing to send a request to ...`, so callers that retry or classify on
+  that sentinel keep matching. It is not retried with the previous fixed-delay
+  retry loop, because retrying a deterministically refused URI only delays the
+  error.
+- `Config` and `APIClient` now implement `fmt.Stringer`: printing them with
+  `%v`, `%+v` or `%s` yields one line in which `password` and `access_token`
+  are replaced by `<redacted>` (or stay empty when unset). Code that parsed the
+  old raw struct dump must read the fields directly (for example
+  `cfg.Password`) or call `FormatDSN()`.
+- `Decimal32` / `Decimal64` / `Decimal128` values are escaped before they are
+  interpolated into the `toDecimalN('...', s)` literal. Valid decimal values
+  still produce the same SQL as before; a value containing `'` or `\` can no
+  longer close the literal and append SQL, so a malformed value now makes the
+  server return an error instead of performing an injection or silently
+  corrupting the statement.
