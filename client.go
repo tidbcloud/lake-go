@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -250,7 +251,10 @@ func (c *APIClient) doRequest(ctx context.Context, method, path string, req inte
 		}
 	}
 
-	url := c.makeURL(path)
+	reqURL, err := c.makeURL(path)
+	if err != nil {
+		return err
+	}
 
 	headers, err := c.makeHeaders(ctx)
 	if err != nil {
@@ -273,7 +277,7 @@ func (c *APIClient) doRequest(ctx context.Context, method, path string, req inte
 		default:
 		}
 
-		httpReq, err := http.NewRequest(method, url, bytes.NewBuffer(reqBody))
+		httpReq, err := http.NewRequest(method, reqURL, bytes.NewBuffer(reqBody))
 		if err != nil {
 			return errors.Wrap(err, "failed to create http request")
 		}
@@ -340,9 +344,45 @@ func (c *APIClient) trackStats(resp *QueryResponse) {
 	c.statsTracker(resp.ID, resp.Stats)
 }
 
-func (c *APIClient) makeURL(path string, args ...interface{}) string {
-	format := c.apiEndpoint + path
-	return fmt.Sprintf(format, args...)
+// makeURL joins a request path with the configured API endpoint.
+//
+// path is usually a fixed server-relative path such as "/v1/query", but for the
+// pagination and termination requests it is taken verbatim from the previous
+// response body (next_uri, final_uri, kill_uri in query.go). Those values are
+// not trustworthy: the endpoint, a reverse proxy in front of it, or an on-path
+// attacker answering a plaintext request can set next_uri to an absolute URL
+// such as "https://attacker.example/v1/query" or to "@attacker.example/v1/query"
+// (which plain concatenation turns into
+// "https://<lake-host>@attacker.example/v1/query"). The request would then be
+// dialled to the attacker's host while carrying the warehouse Authorization
+// header (Basic user:password or Bearer token) and the session cookies.
+//
+// So path is accepted only if it keeps the request on the configured endpoint:
+//   - a relative path must start with "/" (a protocol-relative "//host/path"
+//     parses with a Host and is therefore handled by the absolute-URL rule);
+//   - an absolute URL must use the configured scheme and host.
+//
+// The server-provided string is also never used as a fmt format string, so a
+// "%" in it can no longer corrupt the URL.
+func (c *APIClient) makeURL(path string) (string, error) {
+	base, err := url.Parse(c.apiEndpoint)
+	if err != nil {
+		return "", errors.Wrapf(err, "invalid api endpoint %q", c.apiEndpoint)
+	}
+	u, err := url.Parse(path)
+	if err != nil {
+		return "", errors.Wrapf(err, "invalid request path %q", path)
+	}
+	if u.Scheme != "" || u.Host != "" || u.Opaque != "" {
+		if !strings.EqualFold(u.Scheme, base.Scheme) || !strings.EqualFold(u.Host, base.Host) {
+			return "", errors.Errorf("refusing to send a request to %q: it does not belong to endpoint %q", path, c.apiEndpoint)
+		}
+		return path, nil
+	}
+	if !strings.HasPrefix(u.Path, "/") {
+		return "", errors.Errorf("invalid request path %q: it must be an absolute path or a URL on endpoint %q", path, c.apiEndpoint)
+	}
+	return c.apiEndpoint + path, nil
 }
 
 func (c *APIClient) authMethod() AuthMethod {
@@ -892,8 +932,11 @@ func (c *APIClient) UploadToStageByAPI(ctx context.Context, stage *StageLocation
 	}
 
 	path := "/v1/upload_to_stage"
-	url := c.makeURL(path)
-	req, err := http.NewRequest("PUT", url, body)
+	reqURL, err := c.makeURL(path)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("PUT", reqURL, body)
 	if err != nil {
 		return errors.Wrap(err, "failed to create http request")
 	}
