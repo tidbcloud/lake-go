@@ -91,8 +91,14 @@ func interpolateParams2(query string, params []driver.Value, index []int) (strin
 		n             = len(queryRaw) - len(index) // do not count number of placeholders
 	)
 	for i, v := range params {
-		paramsEncoded[i], _ = textEncode.Encode(v)
-		n += len(paramsEncoded[i])
+		encoded, err := textEncode.Encode(v)
+		if err != nil {
+			// Silently inserting the empty bytes would send a statement that no
+			// longer matches what the caller bound; fail the query instead.
+			return "", errors.Wrapf(err, "failed to encode parameter %d", i)
+		}
+		paramsEncoded[i] = encoded
+		n += len(encoded)
 	}
 	buf := make([]byte, n)
 	i := 0

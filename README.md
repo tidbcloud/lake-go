@@ -203,3 +203,14 @@ for row.Next() {
 | Variant            | string          |
 
 `Binary` is returned as raw `[]byte`. If you scan it into `string`, `database/sql` applies its default `[]byte` to `string` conversion; this does not reformat the value using `binary_output_format`.
+
+## Placeholders and escaping
+
+The driver substitutes `?` placeholders on the client side, so every bind value
+is rendered as SQL text before the statement is sent.
+
+- `string` values are escaped and quoted.
+- `[]byte` values are passed through as raw SQL text (the same channel the
+  `Date`, `UInt64`, `Decimal*` and `Interval` wrappers use). Do not pass
+  attacker-controlled data as `[]byte` to a placeholder: it is not escaped and
+  is spliced into the statement verbatim. Bind it as a `string` instead.

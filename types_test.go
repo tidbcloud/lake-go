@@ -63,6 +63,16 @@ func TestDecimal(t *testing.T) {
 	}
 }
 
+// The value of a Decimal* is spliced into a SQL literal; a quote in it must not
+// be able to close that literal and append a statement of the caller's choosing.
+func TestDecimalEscapesValue(t *testing.T) {
+	dv, err := Decimal64("1','x') OR 1=1 --", 2).Value()
+	if assert.NoError(t, err) {
+		assert.Equal(t, []byte(`toDecimal64('1\',\'x\') OR 1=1 --', 2)`), dv)
+		assert.NotContains(t, string(dv.([]byte)), "','x')")
+	}
+}
+
 func TestIP(t *testing.T) {
 	ipv4 := net.ParseIP("127.0.0.1")
 	assert.NotNil(t, ipv4)
