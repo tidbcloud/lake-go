@@ -160,13 +160,29 @@ func NewAPIHttpClientFromConfig(cfg *Config) *http.Client {
 	jar := NewIgnoreDomainCookieJar()
 	jar.SetCookies(nil, []*http.Cookie{{Name: "cookie_enabled", Value: "true"}})
 	cli := &http.Client{
-		Timeout: cfg.Timeout,
-		Jar:     jar,
+		Timeout:       cfg.Timeout,
+		Jar:           jar,
+		CheckRedirect: checkAPIRedirect,
 	}
 	if cfg.EnableOpenTelemetry {
 		cli.Transport = otelhttp.NewTransport(http.DefaultTransport)
 	}
 	return cli
+}
+
+// checkAPIRedirect keeps every HTTP redirect on the initial request's endpoint.
+// makeURL validates that first request; redirects happen inside http.Client.Do
+// and must be checked before it can forward credentials or session cookies.
+func checkAPIRedirect(req *http.Request, via []*http.Request) error {
+	base := via[0].URL
+	if !strings.EqualFold(req.URL.Scheme, base.Scheme) || !strings.EqualFold(req.URL.Host, base.Host) {
+		return &rejectedURIError{message: fmt.Sprintf("refusing to send a request to %q: it does not belong to endpoint %q", req.URL.String(), base.Scheme+"://"+base.Host)}
+	}
+	// Installing a redirect policy replaces Go's default ten-request limit.
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	return nil
 }
 
 func NewAPIClientFromConfig(cfg *Config) *APIClient {
@@ -984,7 +1000,8 @@ func (c *APIClient) UploadToStageByAPI(ctx context.Context, stage *StageLocation
 
 	// TODO: configurable timeout
 	httpClient := &http.Client{
-		Timeout: time.Second * 60,
+		Timeout:       time.Second * 60,
+		CheckRedirect: checkAPIRedirect,
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {

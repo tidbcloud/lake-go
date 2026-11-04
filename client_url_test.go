@@ -1,11 +1,13 @@
 package golake
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,6 +15,144 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestHTTPRedirectsCannotLeaveEndpoint(t *testing.T) {
+	for _, status := range []int{301, 302, 303, 307, 308} {
+		for _, transport := range []string{"json", "arrow", "upload"} {
+			for _, otherHost := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%d/%s/other-host=%t", status, transport, otherHost), func(t *testing.T) {
+					var outsideHits, credentialLeaks atomic.Int32
+					outside := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						outsideHits.Add(1)
+						if r.Header.Get("Authorization") != "" || strings.Contains(r.Header.Get("Cookie"), "session-canary") {
+							credentialLeaks.Add(1)
+						}
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = w.Write([]byte(`{}`))
+					}))
+					defer outside.Close()
+					target := outside.URL + "/capture"
+					if otherHost {
+						target = strings.Replace(target, "127.0.0.1", "localhost", 1)
+					}
+
+					var endpointHits atomic.Int32
+					endpoint := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						endpointHits.Add(1)
+						assert.NotEmpty(t, r.Header.Get("Authorization"))
+						if transport != "upload" {
+							assert.Contains(t, r.Header.Get("Cookie"), "session-canary")
+						}
+						// The first hop stays on the endpoint, so validation must
+						// also cover subsequent redirects in the chain.
+						if r.URL.Path != "/redirect-hop" {
+							http.Redirect(w, r, "/redirect-hop", http.StatusTemporaryRedirect)
+						} else {
+							http.Redirect(w, r, target, status)
+						}
+					}))
+					if transport == "upload" {
+						endpoint.Start()
+					} else {
+						endpoint.StartTLS()
+					}
+					defer endpoint.Close()
+					cfg := NewConfig()
+					base, err := url.Parse(endpoint.URL)
+					require.NoError(t, err)
+					cfg.Host = base.Host
+					if base.Scheme == "http" {
+						cfg.SSLMode = SSL_MODE_DISABLE
+					}
+					cfg.User, cfg.Password = "review-user", "password-canary"
+					if transport == "arrow" {
+						cfg.User, cfg.Password, cfg.AccessToken = "", "", "token-canary"
+					}
+					client := NewAPIClientFromConfig(cfg)
+					client.cli.Transport = endpoint.Client().Transport
+					client.cli.Jar.SetCookies(base, []*http.Cookie{{Name: "session", Value: "session-canary", Secure: true}})
+
+					switch transport {
+					case "json":
+						err = client.doRequest(context.Background(), "GET", "/v1/query/review/page/1", nil, false, nil, nil)
+					case "arrow":
+						_, err = client.doRequestRaw(context.Background(), "GET", "/v1/query/review/page/1", nil, false, arrowStreamContentType)
+					case "upload":
+						err = client.UploadToStageByAPI(context.Background(), &StageLocation{Name: "review", Path: "data.csv"}, bufio.NewReader(strings.NewReader("1\n")))
+					}
+					assert.ErrorIs(t, err, ErrDoRequest)
+					if assert.Error(t, err) {
+						assert.Contains(t, err.Error(), "refusing to send a request to")
+					}
+					assert.Equal(t, int32(2), endpointHits.Load())
+					assert.Zero(t, outsideHits.Load(), "the redirect target must not receive any request")
+					assert.Zero(t, credentialLeaks.Load(), "credentials must stay on the configured endpoint")
+				})
+			}
+		}
+	}
+}
+
+func TestSameEndpointHTTPRedirects(t *testing.T) {
+	for _, transport := range []string{"json", "arrow", "upload"} {
+		t.Run(transport, func(t *testing.T) {
+			var finalHits atomic.Int32
+			endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "Basic "+encode("review-user", "password-canary"), r.Header.Get("Authorization"))
+				if r.URL.Path != "/final" {
+					http.Redirect(w, r, "http://"+r.Host+"/final", http.StatusTemporaryRedirect)
+					return
+				}
+				finalHits.Add(1)
+				if transport == "upload" {
+					assert.Equal(t, "PUT", r.Method)
+					err := r.ParseMultipartForm(1024)
+					assert.NoError(t, err)
+					if r.MultipartForm != nil {
+						defer r.MultipartForm.RemoveAll()
+						assert.Len(t, r.MultipartForm.File["upload"], 1)
+					}
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer endpoint.Close()
+			cfg := NewConfig()
+			cfg.Host = strings.TrimPrefix(endpoint.URL, "http://")
+			cfg.SSLMode = SSL_MODE_DISABLE
+			cfg.User, cfg.Password = "review-user", "password-canary"
+			client := NewAPIClientFromConfig(cfg)
+			var err error
+			switch transport {
+			case "json":
+				err = client.doRequest(context.Background(), "GET", "/v1/query/review/page/1", nil, false, nil, nil)
+			case "arrow":
+				_, err = client.doRequestRaw(context.Background(), "GET", "/v1/query/review/page/1", nil, false, arrowStreamContentType)
+			case "upload":
+				err = client.UploadToStageByAPI(context.Background(), &StageLocation{Name: "review", Path: "data.csv"}, bufio.NewReader(strings.NewReader("1\n")))
+			}
+			require.NoError(t, err)
+			assert.Equal(t, int32(1), finalHits.Load())
+		})
+	}
+}
+
+func TestHTTPRedirectLimit(t *testing.T) {
+	var hits atomic.Int32
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.Redirect(w, r, r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer endpoint.Close()
+	cfg := NewConfig()
+	cfg.Host = strings.TrimPrefix(endpoint.URL, "http://")
+	cfg.SSLMode = SSL_MODE_DISABLE
+	cfg.User, cfg.Password = "review-user", "password-canary"
+	client := NewAPIClientFromConfig(cfg)
+	err := client.doRequest(context.Background(), "GET", "/v1/query/review/page/1", nil, false, nil, nil)
+	require.ErrorContains(t, err, "stopped after 10 redirects")
+	assert.Equal(t, int32(10), hits.Load())
+}
 
 func TestMakeURL(t *testing.T) {
 	c := &APIClient{apiEndpoint: "https://lake.example.com", host: "lake.example.com"}

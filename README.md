@@ -230,6 +230,10 @@ is rendered as SQL text before the statement is sent.
   `apiEndpoint + path` concatenation is preserved verbatim for relative
   paths, including the two shapes that also worked before: an empty value
   (the endpoint itself) and a query-only value such as `?page=2`.
+- HTTP redirects on query and authenticated stage-upload requests must keep
+  the same scheme and host:port as the initial, validated request, including
+  every hop in a redirect chain. Same-endpoint redirects remain supported
+  with the existing ten-request limit.
 - A rejected URI is still classified as a request failure: the error satisfies
   `errors.Is(err, golake.ErrDoRequest)` and keeps the message
   `refusing to send a request to ...`, so callers that retry or classify on
