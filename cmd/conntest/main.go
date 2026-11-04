@@ -18,14 +18,14 @@ log.Fatal("LAKE_DSN env is not set")
 fmt.Println("=== Connecting to Lake warehouse ===")
 db, err := sql.Open("lake", dsn)
 if err != nil {
-log.Fatalf("sql.Open failed: %v", err)
+log.Fatalf("sql.Open failed (error type %T)", err)
 }
 defer db.Close()
 
 // 1. Ping
 fmt.Print("1. Ping... ")
 if err := db.Ping(); err != nil {
-log.Fatalf("FAIL: %v", err)
+log.Fatalf("FAIL (error type %T)", err)
 }
 fmt.Println("OK")
 
@@ -33,7 +33,7 @@ fmt.Println("OK")
 fmt.Print("2. SELECT 1... ")
 var one int
 if err := db.QueryRow("SELECT 1").Scan(&one); err != nil {
-log.Fatalf("FAIL: %v", err)
+log.Fatalf("FAIL (error type %T)", err)
 }
 fmt.Printf("OK (got %d)\n", one)
 
@@ -41,7 +41,7 @@ fmt.Printf("OK (got %d)\n", one)
 fmt.Println("3. SHOW DATABASES:")
 rows, err := db.Query("SHOW DATABASES")
 if err != nil {
-log.Fatalf("FAIL: %v", err)
+log.Fatalf("FAIL (error type %T)", err)
 }
 defer rows.Close()
 for rows.Next() {
@@ -54,7 +54,7 @@ fmt.Printf("   - %s\n", name)
 fmt.Println("4. Tables in information_schema (limit 10):")
 rows2, err := db.Query("SELECT table_name FROM information_schema.tables LIMIT 10")
 if err != nil {
-log.Fatalf("FAIL: %v", err)
+log.Fatalf("FAIL (error type %T)", err)
 }
 defer rows2.Close()
 for rows2.Next() {
@@ -67,7 +67,7 @@ fmt.Printf("   - %s\n", tbl)
 fmt.Print("5. Server version: ")
 var ver string
 if err := db.QueryRow("SELECT version()").Scan(&ver); err != nil {
-log.Fatalf("FAIL: %v", err)
+log.Fatalf("FAIL (error type %T)", err)
 }
 fmt.Println(ver)
 

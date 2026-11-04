@@ -17,6 +17,25 @@ func fatalf(format string, args ...interface{}) {
 	os.Exit(1)
 }
 
+// reportError records diagnostic metadata, not server messages or SQL text.
+func reportError(operation string, err error) {
+	attrs := []any{"error_type", fmt.Sprintf("%T", err)}
+	var apiErr dc.APIError
+	if errors.As(err, &apiErr) {
+		attrs = append(attrs, "status_code", apiErr.StatusCode)
+	}
+	var queryErr *dc.QueryError
+	if errors.As(err, &queryErr) {
+		attrs = append(attrs, "query_error_code", queryErr.Code)
+	}
+	slog.Error(operation, attrs...)
+}
+
+func fatalError(operation string, err error) {
+	reportError(operation, err)
+	os.Exit(1)
+}
+
 // getDSN constructs a DSN based on the test connection parameters
 func getDSN() (string, *dc.Config, error) {
 	env := func(k string, failOnMissing bool) string {
@@ -51,38 +70,38 @@ func getDSN() (string, *dc.Config, error) {
 func main() {
 	dsn, _, err := getDSN()
 	if err != nil {
-		fatalf("failed to create DSN from Config: %v", err)
+		fatalError("failed to create DSN from Config", err)
 	}
 
 	db, err := sql.Open("lake", dsn)
 	if err != nil {
-		fatalf("failed to connect: %v", err)
+		fatalError("failed to connect", err)
 	}
 	err = db.Ping()
 	if err != nil {
-		panic(err)
+		fatalError("connection check failed", err)
 	}
 	defer db.Close()
 	query := "DESC books"
 	rows, err := db.Query(query) // no cancel is allowed
 	if err != nil {
-		fatalf("failed to run a query. %v, err: %v", query, err)
+		fatalError("failed to run a query", err)
 	}
 	res, err := scanValues(rows)
 	if err != nil {
-		fmt.Printf("scan err %v", err)
+		reportError("scan failed", err)
 	}
 	fmt.Println(res)
 
-	fmt.Printf("Congrats! You have successfully run %v with Lake DB!\n", query)
+	fmt.Println("Query completed successfully.")
 
 	err = selectExec(dsn)
 	if err != nil {
-		fmt.Printf("exec failed, err:%v", err)
+		reportError("exec failed", err)
 	}
 	err = batchInsert(dsn)
 	if err != nil {
-		fmt.Printf("batch insert failed, err %v", err)
+		reportError("batch insert failed", err)
 	}
 }
 func selectExec(dsn string) error {
@@ -95,10 +114,10 @@ func selectExec(dsn string) error {
 
 	rows, err := db.Exec(query, []interface{}{1}...) // no cancel is allowed
 	if err != nil {
-		return fmt.Errorf("failed to run a query. %v, err: %v", query, err)
+		return errors.Wrap(err, "failed to run a query")
 	}
 	fmt.Println(rows.RowsAffected())
-	fmt.Printf("Congrats! You have successfully run %v with Lake DB!\n", query)
+	fmt.Println("Query completed successfully.")
 	return nil
 }
 
@@ -155,14 +174,12 @@ func batchInsert(dsn string) error {
 			"2022",
 		)
 		if err != nil {
-			fmt.Println(err)
 			return err
 		}
 	}
 
 	err = scope.Commit()
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 

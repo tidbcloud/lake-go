@@ -600,7 +600,7 @@ func (c *APIClient) pollUntilQueryEndWithTransport(ctx context.Context, resp *Qu
 			if errors.Is(err, context.Canceled) {
 				// context might be canceled due to timeout or canceled. if it's canceled, we need call
 				// the kill url to tell the backend it's killed.
-				fmt.Printf("query canceled, kill query: %s", resp.ID)
+				logger.Debugf("query cancellation requested")
 				_ = c.KillQuery(context.Background(), resp)
 			}
 			return nil, err
@@ -663,7 +663,7 @@ func (c *APIClient) doRetry(f retry.RetryableFunc, t RequestType) error {
 			if errors.Is(err, ErrDoRequest) || errors.Is(err, ErrReadResponse) || IsProxyErr(err) {
 				return true
 			}
-			if t == Query && strings.Contains(err.Error(), ProvisionWarehouseTimeout) {
+			if t == Query && isProvisionWarehouseTimeout(err) {
 				return true
 			}
 			return false

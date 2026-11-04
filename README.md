@@ -245,6 +245,14 @@ is rendered as SQL text before the statement is sent.
   are replaced by `<redacted>` (or stay empty when unset). Code that parsed the
   old raw struct dump must read the fields directly (for example
   `cfg.Password`) or call `FormatDSN()`.
+- `APIError` diagnostic formatting and structured logging show the HTTP status
+  and caller-provided hint, without the upstream response text or message.
+  `RespText`, `RespBody` and the `RespBody(err)` accessor retain the original
+  response for programmatic use; do not log or serialize those fields without
+  redaction. Inspect these fields rather than parsing the diagnostic string.
+  Warehouse-provisioning timeout retries still inspect the response explicitly.
+  The bundled command examples log failure metadata rather than SQL or raw
+  errors. Query result output remains part of their explicit command output.
 - `Decimal32` / `Decimal64` / `Decimal128` values are escaped before they are
   interpolated into the `toDecimalN('...', s)` literal. Valid decimal values
   still produce the same SQL as before; a value containing `'` or `\` can no

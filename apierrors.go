@@ -18,6 +18,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"strings"
 )
 
@@ -41,16 +43,43 @@ type APIError struct {
 }
 
 func (e APIError) Error() string {
-	message := e.RespBody.Message
-	if message == "" {
-		message = e.RespText
-	}
-	message = fmt.Sprintf("%d %s", e.StatusCode, message)
+	// Upstream messages and response bodies may echo SQL, credentials or proxy
+	// diagnostics. Keep them available through the explicit fields/accessor, but
+	// never include them in the default diagnostic representation.
+	message := fmt.Sprintf("HTTP %d", e.StatusCode)
 	if e.Hint != "" {
-		message = strings.Trim(message, ".")
-		message += ". " + e.Hint
+		message += ": " + e.Hint
 	}
 	return message
+}
+
+// Format keeps debug formats such as %#v from dumping the raw response fields.
+func (e APIError) Format(state fmt.State, verb rune) {
+	if verb == 'q' {
+		_, _ = fmt.Fprintf(state, "%q", e.Error())
+		return
+	}
+	_, _ = io.WriteString(state, e.Error())
+}
+
+// LogValue provides safe metadata to structured loggers without serializing the response.
+func (e APIError) LogValue() slog.Value {
+	return slog.GroupValue(slog.Int("status_code", e.StatusCode), slog.String("hint", e.Hint))
+}
+
+// isProvisionWarehouseTimeout checks the response explicitly: Error() intentionally
+// omits it, but changing diagnostic output must not change the retry decision.
+func isProvisionWarehouseTimeout(err error) bool {
+	var apiErr APIError
+	if errors.As(err, &apiErr) {
+		message := apiErr.RespBody.Message
+		if message == "" {
+			message = apiErr.RespText
+		}
+		return strings.Contains(message, ProvisionWarehouseTimeout) ||
+			strings.Contains(apiErr.Hint, ProvisionWarehouseTimeout)
+	}
+	return strings.Contains(err.Error(), ProvisionWarehouseTimeout)
 }
 
 func NewAPIError(hint string, status int, respBuf []byte) error {
