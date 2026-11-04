@@ -745,7 +745,7 @@ func (c *APIClient) StartQuery(ctx context.Context, query string) (*QueryRespons
 }
 
 func (c *APIClient) startQuery(ctx context.Context, query string, transport queryTransport) (*QueryResponse, error) {
-	logger.Debugf("start query: %s", query)
+	logger.Debugf("start query")
 	request := QueryRequest{
 		SQL:        query,
 		Pagination: c.getPaginationConfig(),

@@ -1,7 +1,13 @@
 package golake
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/stretchr/testify/require"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,4 +58,29 @@ func TestConfigStringRedactsCredentials(t *testing.T) {
 func TestRedacted(t *testing.T) {
 	assert.Equal(t, "", redacted(""))
 	assert.Equal(t, "<redacted>", redacted("hunter2"))
+}
+
+func TestStartQueryLogsMetadataWithoutSQL(t *testing.T) {
+	const sql = "COPY INTO t FROM 's3://bucket' CONNECTION=(SECRET_ACCESS_KEY='log-canary')"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request QueryRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		require.Equal(t, sql, request.SQL)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"test-query","data":[],"state":"Succeeded"}`))
+	}))
+	defer server.Close()
+	var output bytes.Buffer
+	testLogger := CreateDefaultLogger()
+	require.NoError(t, testLogger.SetLogLevel("debug"))
+	testLogger.SetOutput(&output)
+	previousLogger := GetLogger()
+	SetLogger(testLogger)
+	defer SetLogger(previousLogger)
+	client := &APIClient{apiEndpoint: server.URL, cli: server.Client(), user: "test-user", password: "test-password"}
+	_, err := client.startQuery(context.Background(), sql, queryTransportJSON)
+	require.NoError(t, err)
+	assert.Contains(t, output.String(), "start query")
+	assert.NotContains(t, output.String(), "log-canary")
+	assert.NotContains(t, output.String(), sql)
 }
