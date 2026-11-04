@@ -23,6 +23,14 @@ func quote(s string) string {
 	return "'" + s + "'"
 }
 
+// redacted replaces a non-empty secret with a placeholder for logging.
+func redacted(secret string) string {
+	if secret == "" {
+		return ""
+	}
+	return "<redacted>"
+}
+
 func formatTime(value time.Time) string {
 	return quote(value.Format(timeFormat))
 }

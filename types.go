@@ -84,7 +84,12 @@ type decimal struct {
 
 // Value implements driver.Valuer
 func (d decimal) Value() (driver.Value, error) {
-	return []byte(fmt.Sprintf("toDecimal%d('%v', %d)", d.p, d.v, d.s)), nil
+	// d.v is documented to accept a string and is interpolated into a SQL
+	// literal, so it must be escaped like any other string bind value:
+	// otherwise Decimal64("1','x') OR 1=1 --", 2) breaks out of the literal.
+	// The result stays a []byte because that is the driver's raw channel used
+	// to emit the toDecimalN(...) call itself.
+	return []byte(fmt.Sprintf("toDecimal%d('%s', %d)", d.p, escape(fmt.Sprint(d.v)), d.s)), nil
 }
 
 // IP returns compatible database format for net.IP

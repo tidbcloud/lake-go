@@ -49,14 +49,14 @@ func getDSN() (string, *dc.Config, error) {
 }
 
 func main() {
-	dsn, cfg, err := getDSN()
+	dsn, _, err := getDSN()
 	if err != nil {
-		fatalf("failed to create DSN from Config: %v, err: %v", cfg, err)
+		fatalf("failed to create DSN from Config: %v", err)
 	}
 
 	db, err := sql.Open("lake", dsn)
 	if err != nil {
-		fatalf("failed to connect. %v, err: %v", dsn, err)
+		fatalf("failed to connect: %v", err)
 	}
 	err = db.Ping()
 	if err != nil {
@@ -88,7 +88,7 @@ func main() {
 func selectExec(dsn string) error {
 	db, err := sql.Open("lake", dsn)
 	if err != nil {
-		return fmt.Errorf("failed to connect. %v, err: %v", dsn, err)
+		return fmt.Errorf("failed to connect: %v", err)
 	}
 	defer db.Close()
 	query := "SELECT ?"
@@ -137,7 +137,7 @@ func scanValues(rows *sql.Rows) (interface{}, error) {
 func batchInsert(dsn string) error {
 	db, err := sql.Open("lake", dsn)
 	if err != nil {
-		return fmt.Errorf("failed to connect. %v, err: %v", dsn, err)
+		return fmt.Errorf("failed to connect: %v", err)
 	}
 	defer db.Close()
 	scope, err := db.Begin()
