@@ -91,7 +91,10 @@ func (c *APIClient) doRequestRaw(
 		}
 	}
 
-	url := c.makeURL(path)
+	reqURL, err := c.makeURL(path)
+	if err != nil {
+		return nil, err
+	}
 
 	headers, err := c.makeHeaders(ctx)
 	if err != nil {
@@ -117,7 +120,7 @@ func (c *APIClient) doRequestRaw(
 		default:
 		}
 
-		httpReq, err := http.NewRequest(method, url, bytes.NewBuffer(reqBody))
+		httpReq, err := http.NewRequest(method, reqURL, bytes.NewBuffer(reqBody))
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to create http request")
 		}

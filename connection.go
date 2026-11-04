@@ -185,7 +185,13 @@ func (dc *LakeConn) log(msg ...interface{}) {
 // connection as no longer in use.
 func (dc *LakeConn) Close() error {
 	if atomic.CompareAndSwapInt32(&dc.closed, 0, 1) {
-		dc.log("close connection", dc.rest)
+		// Log the session, never the client struct itself: formatting it would
+		// dump the warehouse user/password (see APIClient.String).
+		if dc.rest != nil {
+			dc.log("close connection ", dc.rest.SessionID)
+		} else {
+			dc.log("close connection")
+		}
 		cancel := dc.cancel
 		dc.cancel = nil
 
