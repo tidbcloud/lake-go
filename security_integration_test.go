@@ -1,10 +1,13 @@
 package golake
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +63,7 @@ func TestIntegrationRoleStateRequiresServerGrants(t *testing.T) {
 	limitedConfig := *cfg
 	limitedConfig.User, limitedConfig.Password, limitedConfig.Role = user, "test-only-password", reader
 	limited := NewAPIClientFromConfig(&limitedConfig)
+	limited.cli.Transport = securityTestTransport{t: t}
 	resp, err := limited.QuerySync(ctx, "SELECT current_role()")
 	require.NoError(t, err)
 	actual, ok := resp.cellString(0, 0)
@@ -90,4 +94,19 @@ func TestIntegrationRoleStateRequiresServerGrants(t *testing.T) {
 	_, err = restored.QuerySync(ctx, "SELECT * FROM system.users")
 	require.Error(t, err)
 	require.True(t, strings.Contains(strings.ToLower(err.Error()), "role") || strings.Contains(strings.ToLower(err.Error()), "privilege"), err)
+}
+
+type securityTestTransport struct{ t *testing.T }
+
+func (tr securityTestTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := http.DefaultTransport.RoundTrip(request)
+	if err == nil && response.StatusCode >= 400 {
+		body, readErr := io.ReadAll(response.Body)
+		response.Body.Close()
+		response.Body = io.NopCloser(bytes.NewReader(body))
+		if readErr == nil {
+			tr.t.Logf("test-user authentication response: %s", body)
+		}
+	}
+	return response, err
 }
