@@ -144,7 +144,6 @@ func TestParseDSN(t *testing.T) {
 			"db://username:password@lake.tidbcloud.com:8000/test?tenant=tn&warehouse=wh&timeout=1s&wait_time_secs=10&max_rows_in_buffer=5000000&max_rows_per_page=10000&tls_config=tls-settings&sslmode=disable",
 			"dd://username:password@lake.tidbcloud.com:8000/test?tenant=tn&warehouse=wh&timeout=1s&wait_time_secs=10&max_rows_in_buffer=5000000&max_rows_per_page=10000&tls_config=tls-settings&sslmode=disable",
 			"bend://username:password@lake.tidbcloud.com:8000/test?tenant=tn&warehouse=wh&timeout=1s&wait_time_secs=10&max_rows_in_buffer=5000000&max_rows_per_page=10000&tls_config=tls-settings&sslmode=disable",
-			"https://username:password@lake.tidbcloud.com:8000/test?tenant=tn&warehouse=wh&timeout=1s&wait_time_secs=10&max_rows_in_buffer=5000000&max_rows_per_page=10000&tls_config=tls-settings&sslmode=disable",
 		}
 
 		for _, test := range tests {

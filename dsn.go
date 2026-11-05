@@ -347,13 +347,22 @@ func ParseDSN(dsn string) (*Config, error) {
 	}
 	u, err := url.Parse(encodedDSN)
 	if err != nil {
-		logger.Error("ParseDSN", "err", err)
-		return nil, err
+		// url.Parse errors embed the input URL and can also repeat parts of it
+		// inside Err. Keep the error category without retaining either copy.
+		safeErr := &url.Error{Op: "parse", URL: "<redacted>", Err: fmt.Errorf("invalid DSN URL")}
+		logger.Error("ParseDSN", "err", safeErr)
+		return nil, safeErr
 	}
 	cfg := NewConfig()
 
-	if strings.HasSuffix(u.Scheme, "http") {
+	// Match complete schemes; arbitrary suffixes must not select plaintext.
+	switch u.Scheme {
+	case "http", "lake+http", "db+http", "dd+http", "bend+http":
 		cfg.SSLMode = SSL_MODE_DISABLE
+	case "https", "lake+https", "db+https", "dd+https", "bend+https":
+	case "lake", "db", "dd", "bend":
+	default:
+		return nil, fmt.Errorf("unsupported DSN scheme")
 	}
 
 	if len(u.Path) > 1 {
@@ -376,6 +385,13 @@ func ParseDSN(dsn string) (*Config, error) {
 
 	if err = cfg.AddParams(params); err != nil {
 		return nil, err
+	}
+
+	switch u.Scheme {
+	case "https", "lake+https", "db+https", "dd+https", "bend+https":
+		if cfg.SSLMode == SSL_MODE_DISABLE {
+			return nil, fmt.Errorf("HTTPS DSN cannot use sslmode=disable; use an explicit HTTP DSN for plaintext")
+		}
 	}
 
 	if _, _, err := net.SplitHostPort(u.Host); err == nil {

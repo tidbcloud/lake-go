@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"github.com/pkg/errors"
 	"reflect"
+	"strings"
 )
 
 func buildQuery(query string, args []driver.Value, placeholders *[]int) (string, error) {
@@ -19,7 +20,7 @@ func buildQuery(query string, args []driver.Value, placeholders *[]int) (string,
 		}
 		return q, nil
 	}
-	if len(args) > 0 && args[0] != nil {
+	if len(args) > 0 {
 		result, err := interpolateParams(query, args)
 		if err != nil {
 			return result, errors.Wrap(err, "buildRequest: failed to interpolate params")
@@ -29,40 +30,58 @@ func buildQuery(query string, args []driver.Value, placeholders *[]int) (string,
 	return query, nil
 }
 
+// placeholders uses a single byte-offset scan, with the same quoted regions as
+// the Lake SQL lexer. Counting and locating placeholders must never diverge.
 func placeholders(query string) []int {
-	n := 0
-	quote := false
-	first := -1
+	var index []int
 	for i := 0; i < len(query); i++ {
 		switch query[i] {
-		case '\\':
-			i++
-		case '\'':
-			quote = !quote
-		case '?':
-			if !quote {
-				n++
-				if first == -1 {
-					first = i
+		case '\'', '"', '`':
+			quote := query[i]
+			for i++; i < len(query); i++ {
+				if query[i] == '\\' && quote != '`' {
+					i++
+				} else if query[i] == quote {
+					if i+1 < len(query) && query[i+1] == quote {
+						i++
+					} else {
+						break
+					}
 				}
 			}
-		}
-	}
-	if n == 0 {
-		return nil
-	}
-	quote = false
-	index := make([]int, n)
-	n = 0
-	for i, ch := range query[first:] {
-		switch ch {
-		case '\'':
-			quote = !quote
-		case '?':
-			if !quote {
-				index[n] = first + i
-				n++
+		case '-':
+			if i+1 < len(query) && query[i+1] == '-' {
+				for i += 2; i < len(query) && query[i] != '\n' && query[i] != '\f'; i++ {
+				}
 			}
+		case '/':
+			if i+1 < len(query) && query[i+1] == '*' {
+				end := strings.Index(query[i+2:], "*/")
+				if end < 0 {
+					return index
+				}
+				i += end + 3
+			}
+		case '$':
+			if i+1 < len(query) && query[i+1] == '$' {
+				end := strings.Index(query[i+2:], "$$")
+				if end < 0 {
+					return index
+				}
+				i += end + 3
+			}
+		case '@':
+			// Stage locations are unquoted literal tokens in Lake SQL.
+			for i++; i < len(query); i++ {
+				if query[i] == '\\' && i+1 < len(query) && strings.ContainsRune(" \t\r\n\f\v'\"\\", rune(query[i+1])) {
+					i++
+				} else if strings.ContainsRune(" \t\r\n\f\v,`;\"'()", rune(query[i])) {
+					i--
+					break
+				}
+			}
+		case '?':
+			index = append(index, i)
 		}
 	}
 	return index
@@ -76,13 +95,21 @@ func interpolateParams2(query string, params []driver.Value, index []int) (strin
 	if len(params) == 0 {
 		return query, nil
 	}
-	if reflect.TypeOf(params[0]).Kind() == reflect.Slice {
+	if params[0] != nil && reflect.TypeOf(params[0]).Kind() == reflect.Slice {
 		if reflect.ValueOf(params[0]).Len() == 0 {
 			return query, nil
 		}
 	}
 	if len(index) != len(params) {
 		return "", ErrPlaceholderCount
+	}
+
+	previous := -1
+	for _, offset := range index {
+		if offset <= previous || offset >= len(query) || query[offset] != '?' {
+			return "", ErrPlaceholderCount
+		}
+		previous = offset
 	}
 
 	var (

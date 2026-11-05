@@ -209,6 +209,10 @@ for row.Next() {
 The driver substitutes `?` placeholders on the client side, so every bind value
 is rendered as SQL text before the statement is sent.
 
+Question marks inside quoted strings, quoted identifiers, `$$` strings and SQL
+comments are not bind placeholders. Direct and prepared execution use the same
+scanner.
+
 - `string` values are escaped and quoted.
 - `[]byte` values are passed through as raw SQL text (the same channel the
   `Date`, `UInt64`, `Decimal*` and `Interval` wrappers use). Do not pass
@@ -216,6 +220,18 @@ is rendered as SQL text before the statement is sent.
   is spliced into the statement verbatim. Bind it as a `string` instead.
 
 ## Upgrade notes
+
+### Connection and SQL hardening
+
+- Explicit HTTPS DSNs (including `lake+https`) reject `sslmode=disable`.
+  Use an explicit HTTP DSN or `lake://...?sslmode=disable` for intentional
+  plaintext connections, such as local development. Unknown schemes are rejected.
+- Malformed DSN errors and driver logs omit the input URL and credentials;
+  parse failures remain `*url.Error` values with a redacted URL and diagnostic.
+- `role` selects an initial role. The server validates permissions against the
+  authenticated user's grants. SQL can change the current role or secondary
+  roles; setting this option does not sandbox an overprivileged credential.
+  `WithState` accepts trusted application state, not untrusted input.
 
 ### 0.9.4
 
