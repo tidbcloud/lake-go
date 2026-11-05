@@ -48,6 +48,11 @@ jobs:
         run: |
           make integration
 
+      - name: Security integration regressions
+        env:
+          TEST_LAKE_DSN: "lake://databend:databend@localhost:8000/default?sslmode=disable"
+        run: go test -v -run 'TestIntegration(SecurityBindLiterals|RoleStateRequiresServerGrants)$' ./
+
   notify:
     if: failure()
     needs: test
