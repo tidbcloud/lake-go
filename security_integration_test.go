@@ -1,17 +1,15 @@
 package golake
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,7 +44,7 @@ func TestIntegrationSecurityBindLiterals(t *testing.T) {
 
 func TestIntegrationRoleStateRequiresServerGrants(t *testing.T) {
 	cfg := integrationTestConfig(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	admin := NewAPIClientFromConfig(cfg)
 	suffix := fmt.Sprint(time.Now().UnixNano())
@@ -63,20 +61,36 @@ func TestIntegrationRoleStateRequiresServerGrants(t *testing.T) {
 	limitedConfig := *cfg
 	limitedConfig.User, limitedConfig.Password, limitedConfig.Role = user, "test-only-password", reader
 	limited := NewAPIClientFromConfig(&limitedConfig)
-	limited.cli.Transport = securityTestTransport{t: t}
-	resp, err := limited.QuerySync(ctx, "SELECT current_role()")
-	require.NoError(t, err)
-	actual, ok := resp.cellString(0, 0)
-	require.True(t, ok)
-	require.Equal(t, reader, actual)
+	// The CI backend has several query nodes. New role grants become visible
+	// asynchronously in each node's authorization cache. Keep the requested role
+	// intact and wait for authorization, rather than weakening the test user.
+	var resp *QueryResponse
+	var err error
+	require.EventuallyWithT(t, func(check *assert.CollectT) {
+		candidate := NewAPIClientFromConfig(&limitedConfig)
+		resp, err = candidate.QuerySync(ctx, "SELECT current_role()")
+		if !assert.NoError(check, err) {
+			return
+		}
+		actual, ok := resp.cellString(0, 0)
+		assert.True(check, ok)
+		assert.Equal(check, reader, actual)
+		limited = candidate
+	}, 30*time.Second, 250*time.Millisecond)
 	// A configured role is the initial role, not an immutable privilege ceiling.
-	_, err = limited.QuerySync(ctx, "SET ROLE "+other)
-	require.NoError(t, err)
-	resp, err = limited.QuerySync(ctx, "SELECT current_role()")
-	require.NoError(t, err)
-	actual, ok = resp.cellString(0, 0)
-	require.True(t, ok)
-	require.Equal(t, other, actual)
+	require.EventuallyWithT(t, func(check *assert.CollectT) {
+		_, err = limited.QuerySync(ctx, "SET ROLE "+other)
+		assert.NoError(check, err)
+	}, 30*time.Second, 250*time.Millisecond)
+	require.EventuallyWithT(t, func(check *assert.CollectT) {
+		resp, err = limited.QuerySync(ctx, "SELECT current_role()")
+		if !assert.NoError(check, err) {
+			return
+		}
+		actual, ok := resp.cellString(0, 0)
+		assert.True(check, ok)
+		assert.Equal(check, other, actual)
+	}, 30*time.Second, 250*time.Millisecond)
 	// A server response cannot grant a role that this authenticated user lacks.
 	state := limited.GetState()
 	var session map[string]interface{}
@@ -94,19 +108,4 @@ func TestIntegrationRoleStateRequiresServerGrants(t *testing.T) {
 	_, err = restored.QuerySync(ctx, "SELECT * FROM system.users")
 	require.Error(t, err)
 	require.True(t, strings.Contains(strings.ToLower(err.Error()), "role") || strings.Contains(strings.ToLower(err.Error()), "privilege"), err)
-}
-
-type securityTestTransport struct{ t *testing.T }
-
-func (tr securityTestTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	response, err := http.DefaultTransport.RoundTrip(request)
-	if err == nil && response.StatusCode >= 400 {
-		body, readErr := io.ReadAll(response.Body)
-		response.Body.Close()
-		response.Body = io.NopCloser(bytes.NewReader(body))
-		if readErr == nil {
-			tr.t.Logf("test-user authentication response: %s", body)
-		}
-	}
-	return response, err
 }
