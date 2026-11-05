@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -101,11 +102,24 @@ func TestIntegrationRoleStateRequiresServerGrants(t *testing.T) {
 	message := json.RawMessage(raw)
 	limited.applySessionState(&QueryResponse{Session: &message})
 	_, err = limited.QuerySync(ctx, "SELECT * FROM system.users")
-	require.Error(t, err)
-	require.True(t, strings.Contains(strings.ToLower(err.Error()), "role") || strings.Contains(strings.ToLower(err.Error()), "privilege"), err)
+	requireRoleDenial(t, err)
 	state.SessionState = string(raw)
 	restored := NewAPIClientFromConfig(&limitedConfig).WithState(state)
 	_, err = restored.QuerySync(ctx, "SELECT * FROM system.users")
+	requireRoleDenial(t, err)
+}
+
+func requireRoleDenial(t *testing.T, err error) {
+	t.Helper()
 	require.Error(t, err)
-	require.True(t, strings.Contains(strings.ToLower(err.Error()), "role") || strings.Contains(strings.ToLower(err.Error()), "privilege"), err)
+	message := err.Error()
+	var apiErr APIError
+	if errors.As(err, &apiErr) {
+		// Default diagnostics intentionally hide server response text. Inspect
+		// the explicit field to distinguish role denial from unrelated failures.
+		require.Contains(t, []int{400, 403}, apiErr.StatusCode)
+		message = apiErr.RespText
+	}
+	message = strings.ToLower(message)
+	require.True(t, strings.Contains(message, "role") || strings.Contains(message, "privilege"), "expected a role/privilege rejection")
 }
