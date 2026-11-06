@@ -1,4 +1,4 @@
-TEST_LAKE_DSN ?= lake://databend:databend@localhost:8000/default?sslmode=disable
+TEST_LAKE_DSN ?= lake://databend:databend@localhost:8000/default?sslmode=disable&presign_allow_private=true
 TEST_QUERY_RESULT_FORMAT ?= json
 TEST_SKIP_CASES ?=
 

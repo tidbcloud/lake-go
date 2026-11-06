@@ -43,7 +43,7 @@ type Table1 struct {
 }
 
 var (
-	dsn           = "http://root@localhost:8000?presigned_url_disabled=false"
+	dsn           = "http://root@localhost:8000?presigned_url_disabled=false&presign_allow_private=true"
 	serverVersion = ""
 )
 

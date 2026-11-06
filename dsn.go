@@ -57,6 +57,8 @@ type Config struct {
 
 	// used on the storage which does not support presigned url like HDFS, local fs
 	PresignedURLDisabled bool
+	// PresignAllowPrivate permits trusted private/HTTP object storage.
+	PresignAllowPrivate bool
 
 	// Specifies the value that should be used when encountering empty fields, including both ,, and ,"",, in the CSV data being loaded into the table.
 	// https://docs.tidbcloud.com/sql/sql-reference/file-format-options#empty_field_as
@@ -169,6 +171,9 @@ func (cfg *Config) FormatDSN() string {
 	if cfg.QueryResultFormat != "" && cfg.QueryResultFormat != QueryResultFormatJSON {
 		query.Set("query_result_format", cfg.QueryResultFormat)
 	}
+	if cfg.PresignAllowPrivate {
+		query.Set("presign_allow_private", "true")
+	}
 	if cfg.PresignedURLDisabled {
 		query.Set("presigned_url_disabled", "1")
 	}
@@ -221,6 +226,8 @@ func (cfg *Config) AddParams(params map[string]string) (err error) {
 		case "enable_http_compression":
 			cfg.GzipCompression, err = strconv.ParseBool(v)
 			cfg.Params[k] = v
+		case "presign_allow_private":
+			cfg.PresignAllowPrivate, err = strconv.ParseBool(v)
 		case "presigned_url_disabled":
 			cfg.PresignedURLDisabled, err = strconv.ParseBool(v)
 		case "empty_field_as":
@@ -307,7 +314,11 @@ func autoEncodeUserPassInDSN(dsn string) (string, error) {
 		return dsn, nil
 	}
 	rest := dsn[i+3:]
-	atIdx := strings.Index(rest, "@")
+	authorityEnd := strings.IndexAny(rest, "/?#")
+	if authorityEnd < 0 {
+		authorityEnd = len(rest)
+	}
+	atIdx := strings.LastIndex(rest[:authorityEnd], "@")
 	if atIdx == -1 {
 		return dsn, nil
 	}
@@ -318,23 +329,17 @@ func autoEncodeUserPassInDSN(dsn string) (string, error) {
 		user = userinfo[:idx]
 		pass = userinfo[idx+1:]
 	}
-	var encUser, encPass string
-	if needEscape(user) {
-		encUser = url.QueryEscape(user)
-	} else {
-		encUser = user
+	if decoded, err := url.PathUnescape(user); err == nil {
+		user = decoded
 	}
-	if needEscape(pass) {
-		encPass = url.QueryEscape(pass)
-	} else {
-		encPass = pass
+	if decoded, err := url.PathUnescape(pass); err == nil {
+		pass = decoded
 	}
-	var encUserinfo string
-	if pass != "" {
-		encUserinfo = encUser + ":" + encPass
-	} else {
-		encUserinfo = encUser
+	encUserinfo := url.User(user).String()
+	if strings.Contains(userinfo, ":") {
+		encUserinfo = url.UserPassword(user, pass).String()
 	}
+
 	encodedDSN := dsn[:i+3] + encUserinfo + rest[atIdx:]
 	return encodedDSN, nil
 }
