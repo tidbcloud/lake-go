@@ -275,3 +275,18 @@ scanner.
   longer close the literal and append SQL, so a malformed value now makes the
   server return an error instead of performing an injection or silently
   corrupting the statement.
+
+### Connection and binding follow-up
+
+DSN userinfo is parsed only inside the URL authority. Encode structural characters
+(`/`, `?`, `#`, `@`) in usernames/passwords, preferably using `url.UserPassword`;
+raw separators are URL structure and are no longer reinterpreted as credentials.
+Named Go string types inside Array/Tuple/Map use the same escaping as string.
+The explicit raw `[]byte` channel and typed SQL wrappers retain their behavior.
+
+Presigned uploads require HTTPS and public destination addresses by default.
+DNS answers are checked at connection time and the checked IP is dialed directly;
+proxies and redirects are disabled. For a trusted private object store/local
+MinIO, explicitly set `presign_allow_private=true`. That opt-in permits private
+addresses and HTTP, but still does not follow redirects. Storage remains a
+separate endpoint from the Lake API, so public S3/OSS presigned URLs are supported.

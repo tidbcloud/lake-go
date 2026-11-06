@@ -41,7 +41,7 @@ jobs:
 
       - name: Integration Test
         env:
-          TEST_LAKE_DSN: "lake://databend:databend@localhost:8000/default?sslmode=disable"
+          TEST_LAKE_DSN: "lake://databend:databend@localhost:8000/default?sslmode=disable&presign_allow_private=true"
           TEST_QUERY_RESULT_FORMAT: ${{ matrix.query-result-format }}
           DATABEND_QUERY_VERSION: ${{ matrix.server-version }}
           DATABEND_META_VERSION: ${{ matrix.server-version }}
@@ -50,7 +50,7 @@ jobs:
 
       - name: Security integration regressions
         env:
-          TEST_LAKE_DSN: "lake://databend:databend@localhost:8000/default?sslmode=disable"
+          TEST_LAKE_DSN: "lake://databend:databend@localhost:8000/default?sslmode=disable&presign_allow_private=true"
         run: go test -v -run 'TestIntegration(SecurityBindLiterals|RoleStateRequiresServerGrants)$' ./
 
   notify:

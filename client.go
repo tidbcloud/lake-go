@@ -112,6 +112,7 @@ type APIClient struct {
 	MaxRowsInBuffer      int64
 	MaxRowsPerPage       int64
 	PresignedURLDisabled bool
+	PresignAllowPrivate  bool
 	EmptyFieldAs         string
 	queryResultFormat    string
 	stateRestored        bool
@@ -235,6 +236,7 @@ func NewAPIClientFromConfig(cfg *Config) *APIClient {
 		MaxRowsInBuffer:      cfg.MaxRowsInBuffer,
 		MaxRowsPerPage:       cfg.MaxRowsPerPage,
 		PresignedURLDisabled: cfg.PresignedURLDisabled,
+		PresignAllowPrivate:  cfg.PresignAllowPrivate,
 		EmptyFieldAs:         cfg.EmptyFieldAs,
 		queryResultFormat:    cfg.QueryResultFormat,
 		loginEnabled:         cfg.effectiveLoginEnabled(),
@@ -932,31 +934,31 @@ func (c *APIClient) UploadToStageByPresignURL(ctx context.Context, stage *StageL
 		return errors.Wrap(err, "failed to get presigned url")
 	}
 
-	req, err := http.NewRequest("PUT", presigned.URL, input)
+	req, err := http.NewRequestWithContext(ctx, "PUT", presigned.URL, input)
 	if err != nil {
-		return err
+		return errors.New("invalid presigned upload request")
 	}
 	for k, v := range presigned.Headers {
 		req.Header.Set(k, v)
 	}
 	req.ContentLength = size
-	// TODO: configurable timeout
-	httpClient := &http.Client{
-		Timeout: time.Second * 60,
+	if err := validatePresignURL(req.URL, c.PresignAllowPrivate); err != nil {
+		return err
 	}
+	transport := newPresignTransport(c.PresignAllowPrivate)
+	defer transport.CloseIdleConnections()
+	httpClient := &http.Client{Timeout: 60 * time.Second, Transport: transport,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return errors.Wrap(err, "failed to upload to stage by presigned url")
+		return errors.New("failed to upload to stage by presigned URL")
 	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode >= 400 {
-		return errors.Errorf("failed to upload to stage by presigned url, status code: %d, body: %s", resp.StatusCode, string(respBody))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return errors.Errorf("presigned upload refused HTTP status %d", resp.StatusCode)
 	}
 	return nil
 }

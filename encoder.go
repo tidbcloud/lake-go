@@ -39,6 +39,8 @@ func (e *textEncoder) Encode(value driver.Value) ([]byte, error) {
 
 	vv := reflect.ValueOf(value)
 	switch vv.Kind() {
+	case reflect.String:
+		return []byte(quote(escape(vv.String()))), nil
 	case reflect.Interface, reflect.Ptr:
 		if vv.IsNil() {
 			return []byte("NULL"), nil
