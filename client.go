@@ -116,6 +116,9 @@ type APIClient struct {
 	EmptyFieldAs         string
 	queryResultFormat    string
 	stateRestored        bool
+	stateRestoreErr      error
+	stateRole            string
+	stateSigningKey      []byte
 	loginEnabled         bool
 
 	httpArrowCapabilityMu      sync.Mutex
@@ -165,8 +168,11 @@ func NewAPIHttpClientFromConfig(cfg *Config) *http.Client {
 		Jar:           jar,
 		CheckRedirect: checkAPIRedirect,
 	}
-	if cfg.EnableOpenTelemetry {
-		cli.Transport = otelhttp.NewTransport(http.DefaultTransport)
+	if cfg.TLSConfig != "" || cfg.EnableOpenTelemetry {
+		cli.Transport = apiTransport(cfg)
+		if cfg.EnableOpenTelemetry {
+			cli.Transport = otelhttp.NewTransport(cli.Transport)
+		}
 	}
 	return cli
 }
@@ -225,6 +231,8 @@ func NewAPIClientFromConfig(cfg *Config) *APIClient {
 		warehouse:       cfg.Warehouse,
 		user:            cfg.User,
 		password:        cfg.Password,
+		stateRole:       cfg.Role,
+		stateSigningKey: append([]byte(nil), cfg.StateSigningKey...),
 		sessionState:    &sessionState,
 		sessionStateRaw: &sessionStateRaw,
 		routeHint:       randRouteHint(),
@@ -513,6 +521,9 @@ func (c *APIClient) getSessionState() *SessionState {
 }
 
 func (c *APIClient) initializeConnectionInfo(ctx context.Context) error {
+	if c.stateRestoreErr != nil {
+		return c.stateRestoreErr
+	}
 	if c.doRequestFunc != nil {
 		c.connectionInitMu.Lock()
 		c.connectionInfoInitialized = true

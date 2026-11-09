@@ -106,7 +106,7 @@ func TestIntegrationRoleStateRequiresServerGrants(t *testing.T) {
 	state.SessionState = string(raw)
 	restored := NewAPIClientFromConfig(&limitedConfig).WithState(state)
 	_, err = restored.QuerySync(ctx, "SELECT * FROM system.users")
-	requireRoleDenial(t, err)
+	require.ErrorContains(t, err, "invalid Lake client state")
 }
 
 func requireRoleDenial(t *testing.T, err error) {

@@ -119,22 +119,21 @@ func NewResponse(rows *sql.Rows, err error) (res *Response) {
 		return
 	}
 
+	defer rows.Close()
+	columns, err := rows.Columns()
+	if res.checkError(err) {
+		return
+	}
 	for rows.Next() {
-		types, err := rows.ColumnTypes()
-		if res.checkError(err) {
-			return
-		}
-
-		row := make([]any, len(types))
+		row := make([]*string, len(columns))
+		dest := make([]any, len(row))
 		for i := range row {
-			var v any
-			row[i] = &v
+			dest[i] = &row[i]
 		}
-		if res.checkError(rows.Scan(row...)) {
+		if res.checkError(rows.Scan(dest...)) {
 			return
 		}
-
-		res.Values = append(res.Values, golake.LastRawRow(rows))
+		res.Values = append(res.Values, row)
 	}
 	if res.checkError(rows.Err()) {
 		return
@@ -173,7 +172,7 @@ func main() {
 	}
 	_ = db.Close()
 
-	listener, err := net.Listen("tcp", ":"+port)
+	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", port))
 	if err != nil {
 		slog.Error("failed to listen", "error", err)
 		return

@@ -231,7 +231,14 @@ scanner.
 - `role` selects an initial role. The server validates permissions against the
   authenticated user's grants. SQL can change the current role or secondary
   roles; setting this option does not sandbox an overprivileged credential.
-  `WithState` accepts trusted application state, not untrusted input.
+  Resume with signed snapshots created by `GetState`. They are bound to the
+  warehouse endpoint, configured user, tenant, warehouse and role. The default
+  signature key is process-local. Set a shared, high-entropy `Config.StateSigningKey`
+  in trusted application configuration for cross-process resume. Recreate snapshots
+  created before this change. Use `RestoreState` for immediate validation errors.
+- Configure custom TLS with `RegisterTLSConfig` and the `tls_config` DSN option.
+  An unknown configuration, or combining it with `sslmode=disable`, fails at
+  connection time.
 
 ### 0.9.4
 
