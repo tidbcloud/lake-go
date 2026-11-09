@@ -50,6 +50,9 @@ type Config struct {
 	GzipCompression bool
 	Params          map[string]string
 	TLSConfig       string
+	// StateSigningKey allows trusted applications to resume signed snapshots across processes.
+	// Omit it to accept snapshots created within this process only. Do not put it in a DSN.
+	StateSigningKey []byte
 	SSLMode         string
 
 	// track the progress of query execution

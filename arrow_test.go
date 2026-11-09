@@ -423,11 +423,14 @@ func TestQuerySyncUsesJSONForRestoredState(t *testing.T) {
 
 	cfg := testHTTPConfig(t, server.URL)
 	cfg.QueryResultFormat = QueryResultFormatArrow
-	client := NewAPIClientFromConfig(cfg).WithState(&APIClientState{
+	client := NewAPIClientFromConfig(cfg)
+	state := &APIClientState{
 		SessionID:    "session-1",
 		QuerySeq:     3,
 		SessionState: `{"database":"default","settings":{},"txn_state":"AutoCommit","need_sticky":false,"need_keep_alive":false}`,
-	})
+	}
+	state.Signature = client.signState(*state)
+	require.NoError(t, client.RestoreState(state))
 
 	resp, err := client.QuerySync(context.Background(), "SELECT 1")
 	require.NoError(t, err)
@@ -492,11 +495,14 @@ func TestPollQuerySkipsCapabilityProbeForRestoredState(t *testing.T) {
 
 	cfg := testHTTPConfig(t, server.URL)
 	cfg.QueryResultFormat = QueryResultFormatArrow
-	client := NewAPIClientFromConfig(cfg).WithState(&APIClientState{
+	client := NewAPIClientFromConfig(cfg)
+	state := &APIClientState{
 		SessionID:    "session-1",
 		QuerySeq:     3,
 		SessionState: `{"database":"default","settings":{},"txn_state":"AutoCommit","need_sticky":false,"need_keep_alive":false}`,
-	})
+	}
+	state.Signature = client.signState(*state)
+	require.NoError(t, client.RestoreState(state))
 
 	resp, err := client.PollQuery(context.Background(), "/v1/query/page/1")
 	require.NoError(t, err)

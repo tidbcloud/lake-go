@@ -130,13 +130,12 @@ func TestMakeHeadersUserAgent(t *testing.T) {
 }
 
 func TestClientStateRoundTripRestoresQuerySeq(t *testing.T) {
-	c := APIClient{
-		SessionID:    "session-1",
-		QuerySeq:     7,
-		routeHint:    "route-1",
-		nodeID:       "node-1",
-		sessionState: &SessionState{Settings: map[string]string{"max_result_rows": "5"}},
-	}
+	c := NewAPIClientFromConfig(NewConfig())
+	c.SessionID = "session-1"
+	c.QuerySeq = 7
+	c.routeHint = "route-1"
+	c.nodeID = "node-1"
+	c.sessionState = &SessionState{Settings: map[string]string{"max_result_rows": "5"}}
 	sessionStateRaw, err := json.Marshal(c.sessionState)
 	require.NoError(t, err)
 	raw := json.RawMessage(sessionStateRaw)
@@ -149,7 +148,7 @@ func TestClientStateRoundTripRestoresQuerySeq(t *testing.T) {
 	assert.Equal(t, int64(7), state.QuerySeq)
 
 	restored := NewAPIClientFromConfig(NewConfig())
-	restored.WithState(state)
+	require.NoError(t, restored.RestoreState(state))
 	assert.Equal(t, "session-1", restored.SessionID)
 	assert.Equal(t, int64(7), restored.QuerySeq)
 
