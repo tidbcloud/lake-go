@@ -33,7 +33,7 @@ type Config struct {
 	Role string // Role is the lake role you want to use for the current connection
 
 	AccessToken       string
-	AccessTokenFile   string // path to file containing access token, it can be used to rotate access token
+	AccessTokenFile   string // trusted, programmatic path to a file containing a rotating access token
 	AccessTokenLoader AccessTokenLoader
 
 	Host    string
@@ -134,9 +134,6 @@ func (cfg *Config) FormatDSN() string {
 	}
 	if cfg.AccessToken != "" {
 		query.Set("access_token", cfg.AccessToken)
-	}
-	if cfg.AccessTokenFile != "" {
-		query.Set("access_token_file", cfg.AccessTokenFile)
 	}
 	if cfg.Timeout != 0 {
 		query.Set("timeout", cfg.Timeout.String())
@@ -246,7 +243,7 @@ func (cfg *Config) AddParams(params map[string]string) (err error) {
 		case "access_token":
 			cfg.AccessToken = v
 		case "access_token_file":
-			cfg.AccessTokenFile = v
+			return fmt.Errorf("access_token_file is only supported through a trusted Config")
 		case "sslmode":
 			cfg.SSLMode = v
 		case "enable_otel":
