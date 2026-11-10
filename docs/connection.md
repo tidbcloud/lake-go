@@ -40,7 +40,6 @@ lake://root:root@127.0.0.1:8000/default?sslmode=disable&debug=1
 | sslmode                  | TLS mode. Any value other than `disable` uses TLS (`https`); `disable` uses plaintext (`http`).                              | TLS enabled      | `...?sslmode=disable`                                                    |
 | query_result_format      | Result transport: `json` or `arrow`. Arrow is only used when the server version is `>= 1.2.899`, otherwise it falls back to JSON. | `json`           | `...?query_result_format=arrow`                                         |
 | access_token             | Static access token (alternative to user/password)                                                                           | none             | `...?access_token=xxx`                                                   |
-| access_token_file        | Path to a file containing the access token (supports rotation)                                                               | none             | `...?access_token_file=/path/token`                                      |
 | timeout                  | HTTP client timeout (Go duration string)                                                                                     | none (no limit)  | `...?timeout=30s`                                                        |
 | wait_time_secs           | RESTful query API blocking time; if the query is not finished, the API blocks up to this many seconds before returning       | server default   | `...?wait_time_secs=10`                                                  |
 | max_rows_in_buffer       | The maximum rows kept in the server session buffer                                                                           | server default   | `...?max_rows_in_buffer=50000`                                           |
@@ -52,3 +51,9 @@ lake://root:root@127.0.0.1:8000/default?sslmode=disable&debug=1
 | enable_otel              | Enable OpenTelemetry HTTP instrumentation                                                                                    | `false`          | `...?enable_otel=true`                                                   |
 | debug                    | Enable debug logging                                                                                                         | `false`          | `...?debug=1`                                                            |
 | tls_config               | Name of a registered custom TLS config                                                                                       | none             | `...?tls_config=my-tls`                                                  |
+
+
+For file-backed access token rotation, set `Config.AccessTokenFile` in trusted
+application configuration and pass the config to `sql.OpenDB(cfg)`. Connection
+strings cannot choose a file on the client machine. Use `access_token` for
+a token supplied directly in a DSN.

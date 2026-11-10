@@ -124,12 +124,11 @@ func TestFormatDSNWithLoginDisabled(t *testing.T) {
 
 func TestParseDSN(t *testing.T) {
 	t.Run("test simple dns parse", func(t *testing.T) {
-		dsn := "lake+http://lake.tidbcloud.com:8000/test?tenant=tn&warehouse=wh&timeout=1s&wait_time_secs=10&max_rows_in_buffer=5000000&max_rows_per_page=10000&tls_config=tls-settings&access_token_file=/tmp/file1"
+		dsn := "lake+http://lake.tidbcloud.com:8000/test?tenant=tn&warehouse=wh&timeout=1s&wait_time_secs=10&max_rows_in_buffer=5000000&max_rows_per_page=10000&tls_config=tls-settings"
 
 		cfg, err := ParseDSN(dsn)
 		assert.Equal(t, "string", cfg.EmptyFieldAs)
 		require.NoError(t, err)
-		assert.Equal(t, "/tmp/file1", cfg.AccessTokenFile)
 	})
 
 	t.Run("test parse dsn with different protocols", func(t *testing.T) {
@@ -161,4 +160,14 @@ func TestParseDSN(t *testing.T) {
 			assert.Equal(t, int64(5000000), cfg.MaxRowsInBuffer)
 		}
 	})
+}
+
+func TestAccessTokenFileRequiresTrustedConfig(t *testing.T) {
+	_, err := ParseDSN("lake://warehouse.example/db?access_token_file=/tmp/token")
+	require.ErrorContains(t, err, "access_token_file is only supported through a trusted Config")
+
+	cfg := NewConfig()
+	cfg.AccessTokenFile = "/tmp/token"
+	require.NotContains(t, cfg.FormatDSN(), "access_token_file")
+	require.IsType(t, &FileAccessTokenLoader{}, initAccessTokenLoader(cfg))
 }

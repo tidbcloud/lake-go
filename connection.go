@@ -224,6 +224,7 @@ func (dc *LakeConn) ExecBatch(ctx context.Context, query string, rows [][]driver
 	if err != nil {
 		return nil, err
 	}
+	defer batch.cleanup()
 	for _, args := range rows {
 		err = batch.AppendToFile(args)
 		if err != nil {

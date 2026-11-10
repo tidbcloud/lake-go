@@ -7,12 +7,12 @@ import (
 	"database/sql/driver"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )
 
@@ -50,26 +50,21 @@ type Batch interface {
 	BatchInsert() error
 }
 
-func (dc *LakeConn) prepareBatch(ctx context.Context, query string) (Batch, error) {
+func (dc *LakeConn) prepareBatch(ctx context.Context, query string) (*httpBatch, error) {
 	matches := httpInsertRe.FindStringSubmatch(query)
 	if len(matches) < 2 {
 		return nil, errors.New("PrepareBatch only support INSERT/REPLACE")
 	}
-	csvFileName := fmt.Sprintf("%s/%s.csv", os.TempDir(), uuid.NewString())
-
-	csvFile, err := os.OpenFile(csvFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
+	csvFile, err := os.CreateTemp("", "lake-batch-*.csv")
 	if err != nil {
 		return nil, err
 	}
-	defer csvFile.Close()
-	writer := csv.NewWriter(csvFile)
-	writer.Flush()
 
 	return &httpBatch{
 		query:     query,
 		ctx:       ctx,
 		conn:      dc,
-		batchFile: csvFileName,
+		batchFile: csvFile,
 	}, nil
 }
 
@@ -77,17 +72,17 @@ type httpBatch struct {
 	query     string
 	ctx       context.Context
 	conn      *LakeConn
-	batchFile string
+	batchFile *os.File
+}
+
+func (b *httpBatch) cleanup() {
+	b.batchFile.Close()
+	if err := os.Remove(b.batchFile.Name()); err != nil {
+		b.conn.log("delete batch insert file failed: ", err)
+	}
 }
 
 func (b *httpBatch) BatchInsert() error {
-	defer func() {
-		err := os.RemoveAll(b.batchFile)
-		if err != nil {
-			b.conn.log("delete batch insert file failed: ", err)
-		}
-	}()
-
 	stage, err := b.UploadToStage(context.Background())
 	if err != nil {
 		return errors.Wrap(err, "upload to stage failed")
@@ -101,12 +96,6 @@ func (b *httpBatch) BatchInsert() error {
 }
 
 func (b *httpBatch) AppendToFile(row []driver.Value) error {
-	csvFile, err := os.OpenFile(b.batchFile, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-	defer csvFile.Close()
-
 	lineData := make([]string, 0, len(row))
 	for _, v := range row {
 		var s string
@@ -126,33 +115,29 @@ func (b *httpBatch) AppendToFile(row []driver.Value) error {
 		}
 		lineData = append(lineData, s)
 	}
-	writer := csv.NewWriter(csvFile)
-	err = writer.Write(lineData)
-	if err != nil {
+	writer := csv.NewWriter(b.batchFile)
+	if err := writer.Write(lineData); err != nil {
 		return err
 	}
 	writer.Flush()
-
-	return nil
+	return writer.Error()
 }
 
 func (b *httpBatch) UploadToStage(ctx context.Context) (*StageLocation, error) {
 	ctx = checkQueryID(ctx)
-	fi, err := os.Stat(b.batchFile)
+	fi, err := b.batchFile.Stat()
 	if err != nil {
 		return nil, errors.Wrap(err, "get batch file size failed")
 	}
 	size := fi.Size()
 
-	f, err := os.Open(b.batchFile)
-	if err != nil {
-		return nil, errors.Wrap(err, "open batch file failed")
+	if _, err := b.batchFile.Seek(0, io.SeekStart); err != nil {
+		return nil, errors.Wrap(err, "rewind batch file failed")
 	}
-	defer f.Close()
-	input := bufio.NewReader(f)
+	input := bufio.NewReader(b.batchFile)
 	stage := &StageLocation{
 		Name: "~",
-		Path: fmt.Sprintf("batch/%d-%s", time.Now().Unix(), filepath.Base(b.batchFile)),
+		Path: fmt.Sprintf("batch/%d-%s", time.Now().Unix(), filepath.Base(b.batchFile.Name())),
 	}
 	return stage, b.conn.rest.UploadToStage(ctx, stage, input, size)
 }
